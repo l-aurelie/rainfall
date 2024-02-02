@@ -1,0 +1,31 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+int32_t main(int argc, char **argv) {
+    int eax;
+	char **tab;
+    uid_t uid;
+    gid_t gid;
+    void *ecx;
+    void *ecx13;
+    void *ecx14;
+    void *ecx15;
+
+    eax = atoi(argv[1]);
+    if (!reinterpret_cast<int1_t>(eax == 0x1a7)) {
+        fwrite(ecx, "No !\n", 1, 5, stderr);
+    } else {
+        eax13 = strdup(ecx, "/bin/sh");
+        eax14 = getegid("/bin/sh");
+        eax15 = geteuid("/bin/sh");
+        setresgid(eax14, eax14, eax14);
+        setresuid(eax15, eax15, eax15);
+        execv("/bin/sh");
+    }
+    return 0;
+}
+
+

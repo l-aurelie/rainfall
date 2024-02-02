@@ -1,0 +1,49 @@
+
+On trouve un binaire level0 à la racine.
+On tente de l'executer
+
+$ ./level0
+
+Rien ne se passe.
+
+On peut voir que dans la fonction main, il y a un execve(/bin/sh) qui se fait.
+Or si on fait :
+$ ls -als
+on obtient :
+$ 732 -rwsr-x---+ 1 level1 users 747441 Mar  6  2016 level0
+On peut donc voir que le prorpiétaire de level0 est level1. Or avec la mention S dans les droit accordé,
+on sait donc que le fichier est executer avec le droit de level1.
+Donc il suffit de parvenir à faire executer le execve pour obtenir un shell sous les droit de level1.
+
+On peut voir que le execve ne sera executer que si eax4 === 0x1a7 (c'est a dire 423 en decimal)
+On est pas vraiment sure de savoir d'où vient ce eax4. On decide donc d'utiliser le debugger gdb.
+
+$ gdb level0
+(gdb) layout asm 
+   │0x8048ec0 <main>        push   %ebp                                                                                               │
+   │0x8048ec1 <main+1>      mov    %esp,%ebp                                                                                          │
+   │0x8048ec3 <main+3>      and    $0xfffffff0,%esp                                                                                   │
+   │0x8048ec6 <main+6>      sub    $0x20,%esp                                                                                         │
+   │0x8048ec9 <main+9>      mov    0xc(%ebp),%eax                                                                                     │
+   │0x8048ecc <main+12>     add    $0x4,%eax                                                                                          │
+   │0x8048ecf <main+15>     mov    (%eax),%eax                                                                                        │
+   │0x8048ed1 <main+17>     mov    %eax,(%esp)                                                                                        │
+   │0x8048ed4 <main+20>     call   0x8049710 <atoi>                                                                                   │
+   │0x8048ed9 <main+25>     cmp    $0x1a7,%eax                                                                                        │
+   │0x8048ede <main+30>     jne    0x8048f58 <main+152>                                                                               │
+   │0x8048ee0 <main+32>     movl   $0x80c5348,(%esp)                                                                                  │
+   │0x8048ee7 <main+39>     call   0x8050bf0 <strdup>                                                                                 │
+   │0x8048eec <main+44>     mov    %eax,0x10(%esp)                                                                                    │
+   │0x8048ef0 <main+48>     movl   $0x0,0x14(%esp)
+
+On voit tout de suite la comparaison avec cmp 0x1a7, %eax.
+Et en remontant dans les instruction on s'aperçoit que le %eax en question est
+simplement l'argument donné au programme convertit en int par atoi.
+
+On tente donc :
+$ ./level0 423
+et on obtient notre shell sous level1.
+
+$ cat /home/user/level1/.pass
+$ su level1
+$ password: 1fe8a524fa4bec01ca4ea2a869af2a02260d4a7d5fe7e7c24d8617e6dca12d3a
