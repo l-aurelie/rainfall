@@ -1,0 +1,8 @@
+Copier le binaire level0 vers la machine hote :
+$ scp -P 4242 level0@192.168.5.31:/home/user/level0/level0 ../
+
+Donner le binaire à un décompileur :
+https://dogbolt.org/
+
+Ce dernier permet de transformer un fichier binaire en un programme lisible.
+
