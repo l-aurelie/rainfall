@@ -1,0 +1,17 @@
+Tips: utiliser python pour automatiser certaine tache.
+$ python -c 'print 65 * "A"'
+va permettre d'écrire 65 A à la suite, plutot de les ecrire un a un.
+
+$ python -c "print '\x00\x00\x55\x55\x55\x55\x48\x8c''" pour écrire une addresse
+et 
+$ python -c "print '\x00\x00\x55\x55\x55\x55\x48\x8c'[::-1]'" pour inverser l'ordre des chiffre (utile pour le little indian)
+
+Pour trouver les buffer overflow:
+https://wiremask.eu/tools/buffer-overflow-pattern-generator/
+
+Ce site permet de generer des caractere uniques.
+Lorsqu'on utilise gdb et que l'on donne au programme cette chaine de caractere unique en argument, lorsqu'il va overflow, gdb va nous renvoyer le caractere qui fait overflow sous forme de 0x..... . En donnant l'addresse du caractere qui a fait overflow au site, le site va retrouver le caractere correspondant et nous indiquer le nombre de bytes auquel ca correspond. ainsi on saura ou se trouve l'offset, c'est à dire l'endroit exact ou le programme overflow, apresè combien de bytes il overflow. Ce qui nous permet de l'exploiter en introduisant ce qu'on souhaite à cet endroit precis.
+
+https://stackoverflow.com/questions/13926760/the-reason-behind-endianness
+
+https://www.baeldung.com/linux/dash-in-command-line-parameters

