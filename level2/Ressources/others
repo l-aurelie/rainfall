@@ -1,0 +1,13 @@
+ret to libc:
+https://airman604.medium.com/protostar-stack7-walkthrough-2aa2428be3e0
+
+https://www.ired.team/offensive-security/code-injection-process-injection/binary-exploitation/return-to-libc-ret2libc
+
+ret to .txt:
+(https://infosecwriteups.com/expdev-exploit-exercise-protostar-stack-7-fea3ac85ffe7)
+
+explication des 4 octets apres system:
+https://security.stackexchange.com/questions/222342/ret2libc-why-need-4-bytes-of-garbage+
+
+trouver system(/bin/sh):
+https://copyprogramming.com/howto/shell-gdb-find-bin-sh-code-example

