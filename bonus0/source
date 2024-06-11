@@ -1,0 +1,36 @@
+#include <stdlib.h>
+#include <string.h>
+
+char *p(char *dest, char *s)
+{
+  char buf[4096];
+
+  puts(s);
+  read(0, buf, 4096);
+  *strchr(buf, 10) = '\0'; // 10 = '\n' -> si \n est rencontrr, le remplace par '\0'
+  return strncpy(dest, buf, 20);
+}
+
+char *pp(char *dest)
+{
+  char src[20];
+  char src2[20];
+  int len;
+
+  p(src, " - ");
+  p(src2, " - ");
+  strcpy(dest, src);
+  len = strlen(dest)
+  dest[len] = ' ';
+  dest[len + 1] = '\0';
+  return strcat(dest, src2);
+}
+
+int main(int argc, const char **argv, const char **envp)
+{
+  char s[42];
+
+  pp(s);
+  puts(s);
+  return 0;
+}
