@@ -1,0 +1,26 @@
+    push %ebp: Pushes the value of the base pointer onto the stack.
+    mov %esp, %ebp: Moves the value of the stack pointer into the base pointer, establishing a new stack frame for this function.
+    and $0xfffffff0, %esp: Aligns the stack pointer to a 16-byte boundary by masking out the lower 4 bits.
+    sub $0x20, %esp: Allocates 32 bytes (0x20 in hexadecimal) on the stack for local variables.
+    movl $0x40, (%esp): Pushes the value 0x40 onto the stack (this is a parameter for the malloc function).
+    call 0x8048350 <malloc@plt>: Calls the malloc function to dynamically allocate memory. The address 0x8048350 is the location of the malloc function in the program.
+    mov %eax, 0x1c(%esp): Moves the return value of malloc (a pointer to the allocated memory) into a location on the stack.
+    movl $0x4, (%esp): Pushes the value 0x4 onto the stack (another parameter for malloc).
+    call 0x8048350 <malloc@plt>: Calls malloc again to allocate more memory.
+    mov %eax, 0x18(%esp): Moves the return value of the second malloc call onto the stack.
+    mov $0x8048468, %edx: Moves the address 0x8048468 (m func) into the edx register.
+    mov 0x18(%esp), %eax: Moves the pointer stored at 0x18(%esp) into the eax register.
+    mov %edx, (%eax): Stores the value in edx at the memory location pointed to by eax.(store m in pointer 4oct)
+    mov 0xc(%ebp), %eax: Retrieves a parameter passed to main (assuming the parameter is a pointer) and stores it in eax.
+    add $0x4, %eax: Adds 4 to the value in eax. (argv[1])
+    mov (%eax), %eax: Dereferences the value in eax and stores the result back in eax.
+    mov %eax, %edx: Moves the value in eax into edx. (argv[1] dans edx)
+    mov 0x1c(%esp), %eax: Moves the pointer stored at 0x1c(%esp) into eax.
+    mov %edx, 0x4(%esp): Moves the value in edx to 4(%esp).(place argv[1] en arg to strcpy)
+    mov %eax, (%esp): Moves the value in eax to the top of the stack.(place pointeur alloue en arg strcp
+    call 0x8048340 <strcpy@plt>: Calls the strcpy function with the arguments passed on the stack.
+    mov 0x18(%esp), %eax: Moves the pointer stored at 0x18(%esp) into eax.
+    mov (%eax), %eax: Dereferences the value in eax and stores the result back in eax.
+    call *%eax: Calls the function whose address is stored in eax.(appelle la func m)
+    leave: Epilogue for function cleanup.
+    ret: Returns from the function.
