@@ -1,0 +1,189 @@
+(gdb) disas main
+Dump of assembler code for function main:
+   0x08048529 <+0>:	push   %ebp
+   0x0804852a <+1>:	mov    %esp,%ebp
+   0x0804852c <+3>:	push   %edi
+   0x0804852d <+4>:	push   %esi
+   0x0804852e <+5>:	push   %ebx
+   0x0804852f <+6>:	and    $0xfffffff0,%esp
+   0x08048532 <+9>:	sub    $0xa0,%esp
+   0x08048538 <+15>:	cmpl   $0x3,0x8(%ebp)
+        -> compare taille liste argument à 3
+   0x0804853c <+19>:	je     0x8048548 <main+31>
+   0x0804853e <+21>:	mov    $0x1,%eax
+   0x08048543 <+26>:	jmp    0x8048630 <main+263>
+        -> si égale à 3 poursuit, sinon return
+   0x08048548 <+31>:	lea    0x50(%esp),%ebx
+   0x0804854c <+35>:	mov    $0x0,%eax
+   0x08048551 <+40>:	mov    $0x13,%edx
+   0x08048556 <+45>:	mov    %ebx,%edi
+   0x08048558 <+47>:	mov    %edx,%ecx
+   0x0804855a <+49>:	rep stos %eax,%es:(%edi)
+        -> es = 0, ecx = 13, tant que es < ecx, rempli $edi+es (=0x08048287) de $eax(=0), es++
+   0x0804855c <+51>:	mov    0xc(%ebp),%eax
+   0x0804855f <+54>:	add    $0x4,%eax
+   0x08048562 <+57>:	mov    (%eax),%eax
+        -> prend le premier arg dans la liste des arguments
+   0x08048564 <+59>:	movl   $0x28,0x8(%esp)
+        -> troisieme argument pour strncpy = 0x28 = 40
+   0x0804856c <+67>:	mov    %eax,0x4(%esp)
+        -> deuxieme arg pour strncpy -> source = eax = premier arg de la liste
+   0x08048570 <+71>:	lea    0x50(%esp),%eax
+   0x08048574 <+75>:	mov    %eax,(%esp)
+        -> premier arg pour strncpy
+   0x08048577 <+78>:	call   0x80483c0 <strncpy@plt>
+        -> strncpy(0x08048287, argv[1], 40)
+   0x0804857c <+83>:	mov    0xc(%ebp),%eax
+   0x0804857f <+86>:	add    $0x8,%eax       -> 2e arg
+   0x08048582 <+89>:	mov    (%eax),%eax
+   0x08048584 <+91>:	movl   $0x20,0x8(%esp)  -> 0x20 = 32
+   0x0804858c <+99>:	mov    %eax,0x4(%esp)
+   0x08048590 <+103>:	lea    0x50(%esp),%eax
+   0x08048594 <+107>:	add    $0x28,%eax       -> destination egale meme buffer que tout à l'heure +0x28 = +40
+   0x08048597 <+110>:	mov    %eax,(%esp)
+   0x0804859a <+113>:	call   0x80483c0 <strncpy@plt>
+        -> strncpy((buffer+40 = 0xbffff6e8, argv[2], 32))
+   0x0804859f <+118>:	movl   $0x8048738,(%esp)
+   0x080485a6 <+125>:	call   0x8048380 <getenv@plt>
+        -> getenv("LANG")
+   0x080485ab <+130>:	mov    %eax,0x9c(%esp)
+   0x080485b2 <+137>:	cmpl   $0x0,0x9c(%esp)
+   0x080485ba <+145>:	je     0x8048618 <main+239>
+        -> si getenv("LANG") = 0, return
+   0x080485bc <+147>:	movl   $0x2,0x8(%esp)
+   0x080485c4 <+155>:	movl   $0x804873d,0x4(%esp)
+   0x080485cc <+163>:	mov    0x9c(%esp),%eax
+   0x080485d3 <+170>:	mov    %eax,(%esp)
+   0x080485d6 <+173>:	call   0x8048360 <memcmp@plt>
+        -> comp getenv("LANG") avec 0x804873d (= "fi")
+   0x080485db <+178>:	test   %eax,%eax
+   0x080485dd <+180>:	jne    0x80485eb <main+194>
+        -> si comparaison != 0 (que les deux ne sont pas égaux) passe à +194
+   0x080485df <+182>:	movl   $0x1,0x8049988
+        -> sinon, donne pour valeur 1 à la variabl0xbffff540e globale "language",placée à 0x8049988
+   0x080485e9 <+192>:	jmp    0x8048618 <main+239>
+   0x080485eb <+194>:	movl   $0x2,0x8(%esp)
+   0x080485f3 <+202>:	movl   $0x8048740,0x4(%esp)
+   0x080485fb <+210>:	mov    0x9c(%esp),%eax
+   0x08048602 <+217>:	mov    %eax,(%esp)
+   0x08048605 <+220>:	call   0x8048360 <memcmp@plt>
+        -> comp getenv("LANG") avec 0x8048740 (= "nl")
+   0x0804860a <+225>:	test   %eax,%eax
+   0x0804860c <+227>:	jne    0x8048618 <main+239>
+        -> si pas égale saute à +239
+   0x0804860e <+229>:	movl   $0x2,0x8049988
+        -> sinon, donne pour valeur 2 à la variable globale "language", situé à placée à 0x8049988
+   0x08048618 <+239>:	mov    %esp,%edx
+        -> donne adresse de stockage (en l'occurence, là ou est stocké le resultat de getenv(LANG))
+   0x0804861a <+241>:	lea    0x50(%esp),%ebx
+        ->  prend le buffer (72 octest maximum -> 40 octet du premier arg et 32 du deuxieme arg)
+   0x0804861e <+245>:	mov    $0x13,%eax
+        -> = 19
+   0x08048623 <+250>:	mov    %edx,%edi  -> addresse ou est stocker resultat de getenv
+   0x08048625 <+252>:	mov    %ebx,%esi  -> buffer
+   0x08048627 <+254>:	mov    %eax,%ecx  -> 19
+   0x08048629 <+256>:	rep movsl %ds:(%esi),%es:(%edi)
+        -> copie dans le même buffer que getenv(LANG) les 19 premier caractères du buffer qu'on a rempli précedemment avec les strncpy, sauf que c'est une copie movsl, c'est à dire mov double word. On passe de 1 byte à 4 bytes. C'est à dire qu'il va copier 19x4 = 76 octets = l'intégralité du buffer possible + \0.
+   0x0804862b <+258>:	call   0x8048484 <greetuser>
+        -> appelle greetuser.
+   0x08048630 <+263>:	lea    -0xc(%ebp),%esp
+   0x08048633 <+266>:	pop    %ebx
+   0x08048634 <+267>:	pop    %esi
+   0x08048635 <+268>:	pop    %edi
+   0x08048636 <+269>:	pop    %ebp
+   0x08048637 <+270>:	ret    
+End of assembler dump.
+
+
+(gdb) disas greetuser
+Dump of assembler code for function greetuser:
+   0x08048484 <+0>:	push   %ebp
+   0x08048485 <+1>:	mov    %esp,%ebp
+   0x08048487 <+3>:	sub    $0x58,%esp
+   0x0804848a <+6>:	mov    0x8049988,%eax
+   0x0804848f <+11>:	cmp    $0x1,%eax
+   0x08048492 <+14>:	je     0x80484ba <greetuser+54>
+        -> si la variable globale "language" = 1 saute a +14
+   0x08048494 <+16>:	cmp    $0x2,%eax
+   0x08048497 <+19>:	je     0x80484e9 <greetuser+101>
+        -> si la variable globale "language" = 2 saute a +101
+   0x08048499 <+21>:	test   %eax,%eax
+   0x0804849b <+23>:	jne    0x804850a <greetuser+134>
+        -> sinon si égale à 0 poursuit sinon saute à +134
+   0x0804849d <+25>:	mov    $0x8048710,%edx
+        -> si LANG == 0 %edx contient "Hello "
+   0x080484a2 <+30>:	lea    -0x48(%ebp),%eax
+        -> aligne eax à l'addresse situé à ebp - 0X48(-72)
+   0x080484a5 <+33>:	mov    (%edx),%ecx
+        -> met le contenu de edx ("Hello ") dans %ecx
+   0x080484a7 <+35>:	mov    %ecx,(%eax)
+        -> met ecx = "Hello " à l'addresse contenu dans eax (ebp - 72)
+   0x080484a9 <+37>:	movzwl 0x4(%edx),%ecx
+        -> copie edx+04 (= "o ") dans un espace plus grand et le conserve dans registre ecx (movzwl = zero extended world to long) prend le mot, l'agrandi jusqu'a un long avec un zero, et le copie vers la destination, passe de 16 bits à 32
+   0x080484ad <+41>:	mov    %cx,0x4(%eax)
+        -> place le "o " extended dans une addresse eax+0x4
+   0x080484b1 <+45>:	movzbl 0x6(%edx),%edx
+        -> copie %edx+0x6 ("") en agrandissant de byte to long (8 -> 32) en remplissant avec des 0
+   0x080484b5 <+49>:	mov    %dl,0x6(%eax)
+        -> met le résultat (0) à la suite de "o " qu'on a mis précedemment 
+   0x080484b8 <+52>:	jmp    0x804850a <greetuser+134>
+        -> saute à +134
+
+   0x080484ba <+54>:	mov    $0x8048717,%edx
+        -> si LANG == 1 (fi), %edx contient "Hyvää päivää "
+   0x080484bf <+59>:	lea    -0x48(%ebp),%eax
+        -> eax contient l'addresse situé à ebp - 0X48(-72)
+   0x080484c2 <+62>:	mov    (%edx),%ecx
+        -> met (%edx) = "Hyvää päivää " dans %ecx
+   0x080484c4 <+64>:	mov    %ecx,(%eax)
+        -> met %ecx = "Hyvää päivää " dans l'addresse que pointait %eax
+   0x080484c6 <+66>:	mov    0x4(%edx),%ecx
+        -> met %edx+0x4 = "ä päivää " dans %ecx
+   0x080484c9 <+69>:	mov    %ecx,0x4(%eax)
+        -> place "ä päivää " dans %eax+0x4
+   0x080484cc <+72>:	mov    0x8(%edx),%ecx
+   0x080484cf <+75>:	mov    %ecx,0x8(%eax)
+   0x080484d2 <+78>:	mov    0xc(%edx),%ecx
+   0x080484d5 <+81>:	mov    %ecx,0xc(%eax)
+        -> idem redeplace 4 bytes par 4 byte de "Hyvää päivää " de %edx vers l'addresse pointé par %eax
+   0x080484d8 <+84>:	movzwl 0x10(%edx),%ecx
+        -> prend %edx+0x10 = ("Hyvää päivää " + 16 ) = "\244" (bout de code associé au tréma du a), l'aggrandit de world vers long et le place dans ecx 
+   0x080484dc <+88>:	mov    %cx,0x10(%eax)
+        -> met le resultat à la suite de eax où se trouve deja le mot
+   0x080484e0 <+92>:	movzbl 0x12(%edx),%edx
+        -> continue prend la suite de %edx+0x13 ("Hyvää päivää " + 18) l'etend de byte vers long
+   0x080484e4 <+96>:	mov    %dl,0x12(%eax)
+        -> met le resultat a la suite de eax
+   0x080484e7 <+99>:	jmp    0x804850a <greetuser+134>
+        -> suite à +134
+
+   0x080484e9 <+101>:	mov    $0x804872a,%edx
+        -> si LANG == 2 (nl), $edx = "Goedemiddag! "
+   0x080484ee <+106>:	lea    -0x48(%ebp),%eax
+   0x080484f1 <+109>:	mov    (%edx),%ecx
+   0x080484f3 <+111>:	mov    %ecx,(%eax)
+   0x080484f5 <+113>:	mov    0x4(%edx),%ecx
+   0x080484f8 <+116>:	mov    %ecx,0x4(%eax)
+   0x080484fb <+119>:	mov    0x8(%edx),%ecx
+   0x080484fe <+122>:	mov    %ecx,0x8(%eax)
+        -> idem, copie 4 bytes par 4 bytes Goedemiddag! depuis le registre %edx, vers une addresse pointé par eax (eax - 72)
+   0x08048501 <+125>:	movzwl 0xc(%edx),%edx
+   0x08048505 <+129>:	mov    %dx,0xc(%eax)
+        -> prend edx+0xc (edx+12 = " ") l'étend de world vers long et le met à la suite de l'addresse pointée par eax
+   0x08048509 <+133>:	nop
+
+   0x0804850a <+134>:	lea    0x8(%ebp),%eax
+   0x0804850d <+137>:	mov    %eax,0x4(%esp)
+        -> premier arg
+   0x08048511 <+141>:	lea    -0x48(%ebp),%eax
+   0x08048514 <+144>:	mov    %eax,(%esp)
+        -> prend le bonjour dans la langue correspondante
+   0x08048517 <+147>:	call   0x8048370 <strcat@plt>
+        -> strcat("<Bonjour> ", argv[1])
+   0x0804851c <+152>:	lea    -0x48(%ebp),%eax
+   0x0804851f <+155>:	mov    %eax,(%esp)
+     -> reprend la concatenation
+   0x08048522 <+158>:	call   0x8048390 <puts@plt>
+        -> le print
+   0x08048527 <+163>:	leave  
+   0x08048528 <+164>:	ret 

