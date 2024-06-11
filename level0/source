@@ -15,7 +15,7 @@ int32_t main(int argc, char **argv) {
     void *ecx15;
 
     eax = atoi(argv[1]);
-    if (!reinterpret_cast<int1_t>(eax == 0x1a7)) {
+    if (eax == 423) {
         fwrite(ecx, "No !\n", 1, 5, stderr);
     } else {
         eax13 = strdup(ecx, "/bin/sh");
