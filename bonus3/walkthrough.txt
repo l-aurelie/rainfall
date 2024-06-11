@@ -1,0 +1,43 @@
+On analyse le code grace à gdb
+pour plus de détail cf /ressources/asm, sinon voici un résumé
+Le programme prend un argument.
+Il ouvre le fichier /home/user/end/.pass, puis le lit une fois et stocke les 66 premier caractère du fhichier dans un buffer.
+Ensuite il opère un atoi sur l'argument passé au programe.
+Il passe passe à 0 la position indiqué par le atoi le buffer qui contient les 66 octets du fichier = buffer[atoi(argv[1])] = 0
+puis il va relire le fichier et stocker les 65 octets suivant dans buffer[66]
+ensuite il ferme le fichier .pass.
+Il pose une condition :
+si argv[1] == buffer, on execute un execl(/bin/sh)
+sinon, on print buffer[66] (sauf que les clés précédentes faisaient 64 octets, donc ici à la position 66 il y aura rien)
+
+On veut donc faire en sorte que buffer = argv[1]
+sauf que notre buffer contient notre mot de passe et on ne le connait pas.
+Comme on peut placer un 0 à la postion de atoi(argv[1]), cela signifie que si on fait
+$ ./bonus3 1
+
+le buffer ressemblera à 
+buffer[0] = premier octet du mdp
+buffer[1] = "\0"
+
+et la comparaison se fera uniquement que ces deux octets puisque le symbole \0 termine la string a comparer de strcmp
+
+Donc si on fait
+ $ ./bonus3 0
+ -> buffer[0] = "\0"
+
+ notre buffer = NULL
+
+ seulement on veut que buffer = argv[1], et argv[1] == "0" != NULL car c'est une string contenant un octet, le zero.
+
+ Et bien grâce à atoi on va pouvoir faire passer une chaine de caractère vide, donc NULL et la transformer en 0
+ En effet atoi return un int, et NULL en int n'existe pas, il est égale à 0
+
+ donc : 
+ $ ./bonus3 ""
+ nb = atoi[""] = 0
+ buffer[nb] = buffer[0] = "\0"
+ buffer == NULL et argv[1] == "" == NULL
+
+ $ ./bonus3 ""
+$ cat /home/user/end/.pass
+3321b6f81659f9a71c76616f606e4b50189cecfea611393d5d649f75e157353c
