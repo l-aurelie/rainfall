@@ -1,0 +1,18 @@
+
+#include <stdlib.h>
+
+int main(int argc,char **argv) 
+{
+    char		buffer[40];
+    int 		number;
+
+    number = atoi(argv[1]); //-1073741813
+    if (number > 9) {
+        return (1);
+    }
+    memcpy(buffer, argv[2], number * 4); // number * 4 = -1073741813 * 4 = -4294967252
+    if (number == 1464814662) {   //0x574f4c46
+      execl("/bin/sh", "sh", 0);
+    }
+  return (0);
+}

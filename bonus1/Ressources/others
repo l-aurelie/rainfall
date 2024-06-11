@@ -1,0 +1,12 @@
+https://stackoverflow.com/questions/37239885/what-is-leal-edx-edx-4-eax-means
+
+https://stackoverflow.com/questions/3108306/in-c-how-does-memcpy-deal-with-a-signed-integer-argument
+
+https://support.sas.com/documentation/onlinedoc/ccompiler/doc700/html/lr1/z2055901.htm
+
+http://villemin.gerard.free.fr/Wwwgvmm/Numerati/BINAIRE/Negatif.htm
+
+ 16  8  4  2  1
+  1  0  0  1  0 = 18
+  0  1  1  0  1  -> fait l'inverse
+  0  1  1  1  0  -> on ajoute 1   = -18
